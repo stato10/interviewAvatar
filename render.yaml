@@ -1,0 +1,50 @@
+services:
+  # Static Frontend (React + Vite)
+  - type: web
+    name: interview-avatar-frontend
+    env: static
+    buildCommand: cd web && npm install && npm run build
+    staticPublishPath: ./web/dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://interview-avatar-backend.onrender.com
+      - key: VITE_LIVEKIT_URL
+        sync: false # Set this in Render dashboard
+
+  # FastAPI Backend
+  - type: web
+    name: interview-avatar-backend
+    env: python
+    buildCommand: cd backend && pip install -r requirements.txt
+    startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: LIVEKIT_URL
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+      - key: DATABASE_URL
+        value: sqlite:///./interview_avatar.db
+
+  # LiveKit Python Agent (Runs as a background worker)
+  - type: worker
+    name: interview-avatar-agent
+    env: python
+    buildCommand: cd agent && curl -LsSf https://astral.sh/uv/install.sh | sh && $HOME/.local/bin/uv sync
+    startCommand: cd agent && $HOME/.local/bin/uv run python agent.py start
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: LIVEKIT_URL
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+      - key: BACKEND_URL
+        value: https://interview-avatar-backend.onrender.com
+      - key: BEY_API_KEY
+        sync: false
+      - key: BEY_AVATAR_ID
+        sync: false
