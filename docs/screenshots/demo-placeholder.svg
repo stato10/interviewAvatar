@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="480" viewBox="0 0 960 480" role="img" aria-labelledby="title desc">
+  <title id="title">Demo placeholder</title>
+  <desc id="desc">Swap this SVG for PNG captures or an animated GIF of the app.</desc>
+  <rect fill="#f8fafc" width="960" height="480" rx="16" stroke="#e2e8f0" stroke-width="2"/>
+  <rect x="48" y="48" fill="#e2e8f0" width="864" height="336" rx="12"/>
+  <text x="480" y="240" text-anchor="middle" font-family="system-ui,Segoe UI,sans-serif" font-size="22" fill="#475569">
+    Add screenshots or a short GIF (Session Builder ’ Pre-join ’ Live room ’ Report)
+  </text>
+  <text x="480" y="276" text-anchor="middle" font-family="system-ui,Segoe UI,sans-serif" font-size="15" fill="#94a3b8">
+    docs/screenshots/README.md  suggested filenames inside
+  </text>
+</svg>
