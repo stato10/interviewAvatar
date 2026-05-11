@@ -140,6 +140,10 @@ venv.bak/
 *.db
 *.sqlite3
 
+# Screen recordings / heavy media (uncomment if you keep captures only locally)
+# *.gif
+# *.webm
+
 # OS generated files
 .DS_Store
 .DS_Store?
