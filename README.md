@@ -31,11 +31,13 @@ Interview Avatar Coach is a full-stack reference app: users configure a coaching
 
 ## Demo & screenshots
 
+**For recruiters / tech screen:** this is a **full-stack, real-time** demo — Hebrew **RTL** UI, **LiveKit** room, optional **camera** context for the coach, and a structured **report** after the session.
+
 <p align="center">
   <img src="docs/screenshots/demo-placeholder.svg" width="720" alt="Placeholder — replace with your own demo GIF or PNG captures" />
 </p>
 
-**Replace this placeholder** with a short screen recording (GIF or linked video) and static captures: Session Builder → Pre-join → Live room → Report. See [`docs/screenshots/README.md`](docs/screenshots/README.md) for filenames and tips.
+**Highest impact next step:** add **one** short **GIF (10–15s)** or **2–3 PNGs** (Session Builder → Live room → Report). Replace the image above or add a row of thumbnails. Step-by-step filenames and tools: [`docs/screenshots/README.md`](docs/screenshots/README.md).
 
 ---
 
@@ -105,6 +107,7 @@ interviewAvatar/
 │   └── coach/             # config, prompts, flow, report
 ├── web/                   # Vite + React frontend
 │   └── src/pages/         # Landing, SessionBuilder, PreJoin, LiveRoom, Report
+├── scripts/               # Maintainer helpers (e.g. GitHub About + Topics sync)
 ├── render.yaml            # Render Blueprint (static + web + worker)
 └── .github/workflows/     # CI
 ```
@@ -298,11 +301,27 @@ Built with [LiveKit](https://livekit.io/), [FastAPI](https://fastapi.tiangolo.co
 
 ## GitHub repository settings (maintainers)
 
-Do this once on the repo **home page** (improves discoverability and first impressions):
+Setting **About** (description, website) and **Topics** improves search and first impressions.
 
-1. Click **⚙️** next to **About**.
+### Option A — GitHub UI (no token)
+
+1. Click **⚙️** next to **About** on the repo home page.
 2. **Description** — paste:  
    `AI interview coaching platform with real-time voice & vision — FastAPI, LiveKit, GPT-4o, React`
 3. **Website** — optional: your deployed Render URL or demo link.
 4. **Topics** — add:  
    `python` `fastapi` `react` `typescript` `livekit` `openai` `ai` `interview` `webrtc` `hebrew`
+
+### Option B — Script (same result, from your machine)
+
+Requires a [Personal Access Token](https://github.com/settings/tokens) (classic: **public_repo**, or fine-grained: **Administration** read/write on this repo). **Do not commit the token.**
+
+From the repository root (PowerShell):
+
+```powershell
+$env:GITHUB_TOKEN = "<your_pat_here>"
+# optional: $env:GITHUB_HOMEPAGE = "https://your-app.onrender.com"
+./scripts/sync-github-repository-meta.ps1
+```
+
+Refresh `https://github.com/stato10/interviewAvatar` — **About** and **Topics** should match the README.
