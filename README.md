@@ -4,12 +4,14 @@
 
 **Real-time interview, presentation, and pressure-simulation coaching** — Hebrew-first UI, LiveKit rooms, OpenAI speech and models, and optional Beyond Presence avatar.
 
-[![CI](https://github.com/YOUR_GITHUB_USERNAME/interviewAvatar/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_GITHUB_USERNAME/interviewAvatar/actions/workflows/ci.yml)
+*One-liner for GitHub **About**:* **AI interview coaching platform with real-time voice & vision — FastAPI, LiveKit, GPT-4o, React.**
+
+[![CI](https://github.com/stato10/interviewAvatar/actions/workflows/ci.yml/badge.svg)](https://github.com/stato10/interviewAvatar/actions/workflows/ci.yml)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![Node 20+](https://img.shields.io/badge/node-20+-green.svg)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-[Features](#-features) · [Architecture](#-architecture) · [Quick start](#-quick-start) · [Environment](#-environment-variables) · [API](#-api) · [Deploy](#-deployment-render) · [Troubleshooting](#-troubleshooting)
+[Features](#features) · [Demo](#demo--screenshots) · [Architecture](#architecture) · [Quick start](#quick-start) · [Environment](#environment-variables) · [API](#api) · [Deploy](#deployment-render) · [Troubleshooting](#troubleshooting) · [GitHub settings](#github-repository-settings-maintainers)
 
 </div>
 
@@ -24,6 +26,16 @@ Interview Avatar Coach is a full-stack reference app: users configure a coaching
 | **Web** | React 18, TypeScript, Vite, `livekit-client`, React Router |
 | **API** | FastAPI, SQLAlchemy, LiveKit Server API (rooms + JWT) |
 | **Agent** | `livekit-agents`, OpenAI STT/TTS, Silero VAD, multilingual turn detection |
+
+---
+
+## Demo & screenshots
+
+<p align="center">
+  <img src="docs/screenshots/demo-placeholder.svg" width="720" alt="Placeholder — replace with your own demo GIF or PNG captures" />
+</p>
+
+**Replace this placeholder** with a short screen recording (GIF or linked video) and static captures: Session Builder → Pre-join → Live room → Report. See [`docs/screenshots/README.md`](docs/screenshots/README.md) for filenames and tips.
 
 ---
 
@@ -110,6 +122,16 @@ interviewAvatar/
 
 ## Quick start
 
+Run **three processes at once** — one terminal each:
+
+| # | Service | Directory | Typical command |
+|---|---------|-----------|----------------|
+| 1 | **Backend API** | `backend/` | `python main.py` |
+| 2 | **LiveKit agent** | `agent/` | `uv run python agent.py dev` |
+| 3 | **Web UI** | `web/` | `npm run dev` |
+
+Smoke-check: **`GET http://127.0.0.1:8000/health`** should return `"ok"` before joining a room.
+
 ### 1. Backend
 
 ```bash
@@ -120,11 +142,10 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Create `backend/.env` (see [Environment](#-environment-variables)). Initialize tables (app also runs `create_all` on startup):
+Create `backend/.env` (see [Environment](#environment-variables)). Tables are created on API startup (`init_db`); optionally run Alembic if you rely on migrations.
 
 ```bash
-# Optional: Alembic — ensure migrations match models or rely on init_db()
-# alembic upgrade head
+# Optional: alembic upgrade head
 python main.py
 ```
 
@@ -273,4 +294,15 @@ This project is licensed under the MIT License — see [LICENSE](LICENSE).
 
 Built with [LiveKit](https://livekit.io/), [FastAPI](https://fastapi.tiangolo.com/), [Vite](https://vitejs.dev/), and [OpenAI](https://openai.com/) APIs.
 
-**Replace badges:** After you publish the repo under your GitHub user or org, swap `YOUR_GITHUB_USERNAME/interviewAvatar` in the README badge URLs for accurate CI shields.
+---
+
+## GitHub repository settings (maintainers)
+
+Do this once on the repo **home page** (improves discoverability and first impressions):
+
+1. Click **⚙️** next to **About**.
+2. **Description** — paste:  
+   `AI interview coaching platform with real-time voice & vision — FastAPI, LiveKit, GPT-4o, React`
+3. **Website** — optional: your deployed Render URL or demo link.
+4. **Topics** — add:  
+   `python` `fastapi` `react` `typescript` `livekit` `openai` `ai` `interview` `webrtc` `hebrew`
