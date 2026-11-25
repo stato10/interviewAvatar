@@ -4,8 +4,6 @@
 
 **Real-time interview, presentation, and pressure-simulation coaching** — Hebrew-first UI, LiveKit rooms, OpenAI speech and models, and optional Beyond Presence avatar.
 
-*One-liner for GitHub **About**:* **AI interview coaching platform with real-time voice & vision — FastAPI, LiveKit, GPT-4o, React.**
-
 [![CI](https://github.com/stato10/interviewAvatar/actions/workflows/ci.yml/badge.svg)](https://github.com/stato10/interviewAvatar/actions/workflows/ci.yml)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![Node 20+](https://img.shields.io/badge/node-20+-green.svg)](https://nodejs.org/)
