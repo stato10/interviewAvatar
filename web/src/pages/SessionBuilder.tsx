@@ -65,7 +65,7 @@ export default function SessionBuilder() {
     } catch (err) {
       console.error('create session failed', err)
       if (err instanceof ApiError && err.status === 503)
-        setError('השרת לא מחובר ל-LiveKit, ולכן אי אפשר לפתוח חדר. צריך להגדיר את LIVEKIT_URL ב-backend/.env.')
+        setError('השרת לא מחובר ל-LiveKit, ולכן אי אפשר לפתוח חדר. צריך להוסיף את פרטי LiveKit לקובץ .env ולהריץ שוב את python scripts/setup.py.')
       else if (err instanceof ApiError && err.status === 0) setError(err.message)
       else setError('לא הצלחנו לפתוח אימון. נסו שוב בעוד רגע.')
     } finally {

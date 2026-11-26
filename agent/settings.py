@@ -83,9 +83,9 @@ def load_settings() -> Settings:
 
 REQUIRED = {
     "OPENAI_API_KEY": "https://platform.openai.com/api-keys",
-    "LIVEKIT_URL": "LiveKit Cloud → Settings → Keys (or ws://localhost:7880 with `livekit-server --dev`)",
-    "LIVEKIT_API_KEY": "same place as LIVEKIT_URL (devkey for --dev)",
-    "LIVEKIT_API_SECRET": "same place as LIVEKIT_URL (secret for --dev)",
+    "LIVEKIT_URL": "LiveKit Cloud → Settings → Keys, or run the local server: compose.livekit.yaml",
+    "LIVEKIT_API_KEY": "same place as LIVEKIT_URL",
+    "LIVEKIT_API_SECRET": "same place as LIVEKIT_URL",
 }
 
 
