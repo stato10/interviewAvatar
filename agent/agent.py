@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sys
 
 from livekit import agents, rtc
 from livekit.agents import Agent, AgentServer, AgentSession, JobContext, room_io
@@ -21,6 +22,7 @@ from livekit.plugins.turn_detector.multilingual import MultilingualModel
 from avatar import start_avatar
 from coach.config import SessionConfig, parse_room_metadata
 from coach.flow import FlowEvent, create_flow
+from coach.models import ResolvedModels, resolve
 from coach.prompt_builder import (
     DONE_INSTRUCTION,
     build_agent_instructions,
@@ -28,7 +30,7 @@ from coach.prompt_builder import (
     build_session_instruction,
 )
 from coach.report import ReportGenerator
-from settings import settings
+from settings import REQUIRED, missing_required, settings
 
 logger = logging.getLogger("coach.agent")
 
@@ -40,17 +42,22 @@ MSG_REPORT_FAILED = "REPORT_FAILED"
 
 
 class CoachAgent(Agent):
-    """Coach persona. Optionally attaches the latest camera frame to each user turn."""
+    """Coach persona.
 
-    def __init__(self, session_config: SessionConfig) -> None:
+    In pipeline mode it attaches the latest camera frame to each user turn. In realtime mode
+    LiveKit streams sampled frames to the model itself (RoomOptions.video_input).
+    """
+
+    def __init__(self, session_config: SessionConfig, *, attach_frames: bool) -> None:
         super().__init__(instructions=build_agent_instructions(session_config))
         self.session_config = session_config
+        self._attach_frames = attach_frames and settings.enable_vision
         self._latest_frame: rtc.VideoFrame | None = None
         self._video_stream: rtc.VideoStream | None = None
         self._video_task: asyncio.Task | None = None
 
     async def on_user_turn_completed(self, turn_ctx: ChatContext, new_message: ChatMessage) -> None:
-        if settings.enable_vision and self._latest_frame is not None:
+        if self._attach_frames and self._latest_frame is not None:
             # Low detail keeps token cost bounded as images accumulate in history.
             new_message.content.append(
                 ImageContent(
@@ -59,7 +66,7 @@ class CoachAgent(Agent):
             )
 
     def watch_video(self, track: rtc.Track) -> None:
-        if not settings.enable_vision or track.kind != rtc.TrackKind.KIND_VIDEO:
+        if not self._attach_frames or track.kind != rtc.TrackKind.KIND_VIDEO:
             return
         self.stop_video()
         stream = rtc.VideoStream(track)
@@ -92,13 +99,40 @@ def transcript_from(session: AgentSession) -> list[tuple[str, str]]:
     return turns
 
 
-def build_session(vad: silero.VAD) -> AgentSession:
-    if not settings.openai_api_key:
-        raise RuntimeError("OPENAI_API_KEY is not set (agent/.env.local)")
+_models: ResolvedModels | None = None
+_models_lock = asyncio.Lock()
+
+
+async def get_models() -> ResolvedModels:
+    """Resolve model IDs once per worker process."""
+    global _models
+    async with _models_lock:
+        if _models is None:
+            _models = await resolve(settings.openai_api_key or "", settings.model_overrides)
+        return _models
+
+
+def build_session(models: ResolvedModels, vad: silero.VAD) -> AgentSession:
+    key = settings.openai_api_key
+    if settings.mode == "realtime":
+        from openai.types.realtime import AudioTranscription
+
+        return AgentSession(
+            llm=openai.realtime.RealtimeModel(
+                model=models.realtime,
+                voice=settings.realtime_voice,
+                api_key=key,
+                # Needed for live captions and for the post-session report.
+                input_audio_transcription=AudioTranscription(
+                    model=models.realtime_transcribe, language=settings.language
+                ),
+            ),
+            vad=vad,
+        )
     return AgentSession(
-        stt=openai.STT(model=settings.stt_model, language=settings.stt_language, api_key=settings.openai_api_key),
-        llm=openai.LLM(model=settings.llm_model, api_key=settings.openai_api_key, temperature=0.7),
-        tts=openai.TTS(model=settings.tts_model, voice=settings.tts_voice, api_key=settings.openai_api_key),
+        stt=openai.STT(model=models.stt, language=settings.language, api_key=key),
+        llm=openai.LLM(model=models.llm, api_key=key),
+        tts=openai.TTS(model=models.tts, voice=settings.tts_voice, api_key=key),
         vad=vad,
         turn_detection=MultilingualModel(),
     )
@@ -119,7 +153,9 @@ def room_options() -> room_io.RoomOptions:
             )
         except ImportError:
             logger.warning("noise cancellation plugin unavailable, continuing without it")
-    return room_io.RoomOptions(audio_input=audio_input)
+    # Realtime models accept images directly: let LiveKit sample the camera for them.
+    video_input = settings.enable_vision and settings.mode == "realtime"
+    return room_io.RoomOptions(audio_input=audio_input, video_input=video_input)
 
 
 server = AgentServer()
@@ -143,15 +179,16 @@ async def entrypoint(ctx: JobContext) -> None:
 
     await ctx.connect()
 
-    session = build_session(ctx.proc.userdata.get("vad") or silero.VAD.load())
-    coach = CoachAgent(session_config)
+    models = await get_models()
+    session = build_session(models, ctx.proc.userdata.get("vad") or silero.VAD.load())
+    coach = CoachAgent(session_config, attach_frames=settings.mode == "pipeline")
     flow = create_flow(session_config)
     reporter = ReportGenerator(
         session_id=session_id,
         session_type=session_config.sessionType,
         backend_url=settings.backend_url,
         openai_api_key=settings.openai_api_key,
-        model=settings.report_model,
+        model=models.report,
         agent_api_key=settings.agent_api_key,
     )
     background: set[asyncio.Task] = set()
@@ -219,5 +256,18 @@ async def entrypoint(ctx: JobContext) -> None:
     session.generate_reply(instructions=build_session_instruction(session_config))
 
 
+def preflight() -> None:
+    """Fail fast with a readable message instead of a stack trace deep inside a session."""
+    command = sys.argv[1] if len(sys.argv) > 1 else ""
+    if command not in {"dev", "start", "console", "connect"}:
+        return  # e.g. download-files / --help need no credentials
+    missing = missing_required()
+    if missing:
+        lines = "\n".join(f"  - {name}: {REQUIRED[name]}" for name in missing)
+        raise SystemExit(f"Missing configuration (add it to the repo-root .env, then rerun):\n{lines}")
+    logger.info("coach mode: %s, language: %s", settings.mode, settings.language)
+
+
 if __name__ == "__main__":
+    preflight()
     agents.cli.run_app(server)

@@ -1,0 +1,40 @@
+# Avatar Coach — full stack.
+#   1. python scripts/setup.py   (creates .env, tells you which keys to add)
+#   2. docker compose up --build
+#   3. open http://localhost:3000
+#
+# No LiveKit Cloud account yet? Use the local LiveKit server instead (only an OpenAI key needed):
+#   docker compose -f compose.yaml -f compose.livekit.yaml up --build
+
+services:
+  backend:
+    build: ./backend
+    env_file: .env
+    environment:
+      CORS_ORIGINS: http://localhost:3000
+    volumes:
+      - backend-data:/data
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  agent:
+    build: ./agent
+    env_file: .env
+    environment:
+      BACKEND_URL: http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  backend-data:

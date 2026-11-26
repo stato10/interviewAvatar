@@ -4,7 +4,7 @@ Thanks for improving Interview Avatar Coach.
 
 ## Development setup
 
-Follow the **Quick start** and **Environment variables** sections in [README.md](README.md). Use three terminals: backend, agent (`uv run python agent.py dev`), and web (`npm run dev`).
+Follow **Quick start** in [README.md](README.md): `python scripts/setup.py`, then `docker compose up --build`, or run the three services natively.
 
 ## Before you open a PR
 
@@ -13,7 +13,7 @@ Follow the **Quick start** and **Environment variables** sections in [README.md]
    - `cd agent && uv sync --frozen && uv run ruff check . && uv run pytest -q`
    - `cd web && npm ci && npm test && npm run build`
 2. Keep changes focused — avoid unrelated refactors in the same PR.
-3. Document new environment variables in the README and the relevant `.env.example`.
+3. Document new environment variables in the README and the root `.env.example`.
 4. If you change the data-channel protocol, update both `agent/agent.py` and `web/src/lib/protocol.ts`.
 
 ## Code style

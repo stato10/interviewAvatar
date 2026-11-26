@@ -62,3 +62,16 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+
+  docker:
+    name: Docker images (build only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate compose files
+        run: |
+          cp .env.example .env
+          docker compose config -q
+          docker compose -f compose.yaml -f compose.livekit.yaml config -q
+      - name: Build images
+        run: docker compose build

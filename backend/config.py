@@ -15,12 +15,15 @@ _HERE = Path(__file__).resolve().parent
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=(_HERE / ".env", _HERE / ".env.local"),  # later files win
+        env_file=(_HERE.parent / ".env", _HERE / ".env", _HERE / ".env.local"),  # later files win
         env_file_encoding="utf-8",
         extra="ignore",
     )
 
     livekit_url: str | None = None
+    # URL the *browser* uses. Differs from livekit_url only when the server reaches LiveKit
+    # on an internal address (e.g. ws://livekit:7880 inside Docker).
+    livekit_public_url: str | None = None
     livekit_api_key: str | None = None
     livekit_api_secret: str | None = None
 
@@ -42,6 +45,10 @@ class Settings(BaseSettings):
         if value.startswith("postgres://"):
             return "postgresql://" + value.removeprefix("postgres://")
         return value
+
+    @property
+    def browser_livekit_url(self) -> str:
+        return self.livekit_public_url or self.livekit_url or ""
 
     @property
     def livekit_configured(self) -> bool:

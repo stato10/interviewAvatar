@@ -101,3 +101,11 @@ def test_cors_preflight(client):
 def test_create_session_response_omits_unset_options(client):
     data = _create(client, "simulation", scenario="salary negotiation")
     assert data["sessionConfig"] == {"sessionType": "simulation", "options": {"scenario": "salary negotiation"}}
+
+
+def test_public_livekit_url_overrides_browser_url(monkeypatch):
+    from config import Settings
+
+    s = Settings(livekit_url="ws://livekit:7880", livekit_public_url="ws://localhost:7880")
+    assert s.browser_livekit_url == "ws://localhost:7880"
+    assert Settings(livekit_url="wss://x.livekit.cloud").browser_livekit_url == "wss://x.livekit.cloud"

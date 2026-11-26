@@ -20,13 +20,14 @@ class LiveKitNotConfigured(RuntimeError):
 class LiveKitService:
     def __init__(self, settings: Settings):
         if not settings.livekit_configured:
-            raise LiveKitNotConfigured("Set LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET in backend/.env")
+            raise LiveKitNotConfigured("Set LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET in the repo-root .env")
         self._settings = settings
         self._api: api.LiveKitAPI | None = None
 
     @property
     def url(self) -> str:
-        return self._settings.livekit_url or ""
+        """The LiveKit URL handed to the browser."""
+        return self._settings.browser_livekit_url
 
     def _client(self) -> api.LiveKitAPI:
         # Created lazily: LiveKitAPI opens an aiohttp session, which needs a running loop.
