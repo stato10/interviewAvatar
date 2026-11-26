@@ -21,7 +21,7 @@ Interview Avatar Coach is a full-stack reference app: users configure a coaching
 
 | Layer | Stack |
 |--------|--------|
-| **Web** | React 18, TypeScript, Vite, `livekit-client`, React Router |
+| **Web** | React 18, TypeScript, Vite, `livekit-client`, React Router, Lucide icons |
 | **API** | FastAPI, SQLAlchemy, LiveKit Server API (rooms + JWT) |
 | **Agent** | `livekit-agents`, OpenAI STT/TTS, Silero VAD, multilingual turn detection |
 
@@ -32,10 +32,15 @@ Interview Avatar Coach is a full-stack reference app: users configure a coaching
 **For recruiters / tech screen:** this is a **full-stack, real-time** demo — Hebrew **RTL** UI, **LiveKit** room, optional **camera** context for the coach, and a structured **report** after the session.
 
 <p align="center">
-  <img src="docs/screenshots/demo-placeholder.svg" width="720" alt="Placeholder — replace with your own demo GIF or PNG captures" />
+  <img src="docs/screenshots/landing.png" width="820" alt="Landing page" />
 </p>
 
-**Highest impact next step:** add **one** short **GIF (10–15s)** or **2–3 PNGs** (Session Builder → Live room → Report). Replace the image above or add a row of thumbnails. Step-by-step filenames and tools: [`docs/screenshots/README.md`](docs/screenshots/README.md).
+<p align="center">
+  <img src="docs/screenshots/session-builder.png" width="405" alt="Session builder" />
+  <img src="docs/screenshots/report.png" width="405" alt="Coaching report" />
+</p>
+
+A live-room capture (coach orb, live transcript, controls) needs real LiveKit credentials — see [`docs/screenshots/README.md`](docs/screenshots/README.md).
 
 ---
 

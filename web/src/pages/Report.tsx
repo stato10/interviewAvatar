@@ -1,16 +1,33 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
+import {
+  ArrowLeft,
+  CheckCircle2,
+  FileQuestion,
+  FileText,
+  Lightbulb,
+  Printer,
+  RefreshCw,
+  Sparkles,
+  ThumbsUp,
+  WifiOff,
+} from 'lucide-react'
+import { AppShell } from '../components/AppShell'
+import { Stepper } from '../components/Stepper'
 import { ApiError, getReport } from '../lib/api'
-import { SESSION_TYPE_LABELS, type ReportData } from '../lib/types'
+import { SESSION_TYPE_LABELS, type ReportResponse } from '../lib/types'
 
 const POLL_INTERVAL_MS = 2500
 const POLL_TIMEOUT_MS = 90_000
 
-type State = { kind: 'loading' } | { kind: 'ready'; report: ReportData } | { kind: 'missing' } | { kind: 'error' }
+type State =
+  | { kind: 'loading' }
+  | { kind: 'ready'; data: ReportResponse }
+  | { kind: 'missing' }
+  | { kind: 'error' }
 
 export default function Report() {
   const { sessionId } = useParams()
-  const navigate = useNavigate()
   const [state, setState] = useState<State>({ kind: 'loading' })
   const [attempt, setAttempt] = useState(0)
 
@@ -24,8 +41,8 @@ export default function Report() {
 
     const poll = async () => {
       try {
-        const res = await getReport(sessionId, controller.signal)
-        setState({ kind: 'ready', report: res.report })
+        const data = await getReport(sessionId, controller.signal)
+        setState({ kind: 'ready', data })
       } catch (err) {
         if (controller.signal.aborted) return
         if (err instanceof ApiError && err.status === 404) {
@@ -45,99 +62,150 @@ export default function Report() {
     }
   }, [sessionId, attempt])
 
-  if (state.kind === 'loading') {
-    return (
-      <div className="container page text-center">
-        <div className="card">
-          <div className="spinner" aria-hidden />
-          <h2>מכין את הדוח שלך…</h2>
-          <p className="muted">המאמן מנתח את השיחה. זה לוקח בדרך כלל כמה שניות.</p>
-        </div>
+  return (
+    <AppShell nav={<Stepper current={3} />}>
+      <div className="container page">
+        {state.kind === 'loading' && <Loading />}
+        {(state.kind === 'missing' || state.kind === 'error') && (
+          <div className="card state-screen fade-in">
+            <span className="state-icon">{state.kind === 'missing' ? <FileQuestion /> : <WifiOff />}</span>
+            <h2 className="display">{state.kind === 'missing' ? 'הדוח עדיין לא מוכן' : 'לא הצלחנו לטעון את הדוח'}</h2>
+            <p className="muted">
+              {state.kind === 'missing'
+                ? 'ייתכן שהסשן היה קצר מדי, או שהמאמן לא הספיק להצטרף. נסו שוב בעוד רגע.'
+                : 'נראה שאין חיבור לשרת כרגע.'}
+            </p>
+            <div className="row">
+              <button className="btn btn-primary" onClick={() => setAttempt((a) => a + 1)}>
+                <RefreshCw /> נסו שוב
+              </button>
+              <Link className="btn" to="/session-builder">
+                סשן חדש
+              </Link>
+            </div>
+          </div>
+        )}
+        {state.kind === 'ready' && <ReportView data={state.data} />}
       </div>
-    )
-  }
+    </AppShell>
+  )
+}
 
-  if (state.kind !== 'ready') {
-    return (
-      <div className="container page text-center">
-        <div className="card">
-          <h2>{state.kind === 'missing' ? 'הדוח עדיין לא זמין' : 'שגיאה בטעינת הדוח'}</h2>
-          <p className="muted">
-            {state.kind === 'missing'
-              ? 'ייתכן שהסשן היה קצר מדי, או שהסוכן לא היה מחובר. נסה לרענן בעוד רגע.'
-              : 'לא ניתן להתחבר לשרת כרגע.'}
-          </p>
-          <div className="row row-center">
-            <button className="btn-primary" onClick={() => setAttempt((a) => a + 1)}>
-              נסה שוב
-            </button>
-            <button className="btn-secondary" onClick={() => navigate('/')}>
-              דף הבית
-            </button>
+function Loading() {
+  return (
+    <div className="card state-screen fade-in" aria-busy="true">
+      <div className="loader" />
+      <h2 className="display">מכינים את הדוח שלך…</h2>
+      <p className="muted">המאמן מנתח את השיחה ומנסח משוב. זה לוקח בדרך כלל כמה שניות.</p>
+      <div style={{ display: 'grid', gap: 10, marginTop: 28 }}>
+        <div className="skeleton" style={{ width: '90%' }} />
+        <div className="skeleton" style={{ width: '70%' }} />
+        <div className="skeleton" style={{ width: '80%' }} />
+      </div>
+    </div>
+  )
+}
+
+function ReportView({ data }: { data: ReportResponse }) {
+  const { report } = data
+  const date = data.createdAt
+    ? new Intl.DateTimeFormat('he-IL', { dateStyle: 'long', timeStyle: 'short' }).format(new Date(data.createdAt))
+    : null
+
+  return (
+    <article className="fade-in">
+      <header className="report-head">
+        <div>
+          <span className="eyebrow">
+            <FileText size={15} /> דוח אימון
+          </span>
+          <h1 className="display">ככה זה נראה מהצד.</h1>
+          <div className="report-meta">
+            <span className="badge badge-dot" style={{ color: 'var(--brand)' }}>
+              {SESSION_TYPE_LABELS[report.sessionType] ?? report.sessionType}
+            </span>
+            {date && <span className="badge">{date}</span>}
           </div>
         </div>
-      </div>
-    )
-  }
+        <div className="report-actions">
+          <button className="btn" onClick={() => window.print()}>
+            <Printer /> הדפסה / PDF
+          </button>
+          <Link className="btn btn-primary" to="/session-builder">
+            אימון נוסף <ArrowLeft />
+          </Link>
+        </div>
+      </header>
 
-  const { report } = state
-  return (
-    <div className="container page">
-      <div className="card card-wide report">
-        <p className="muted">{SESSION_TYPE_LABELS[report.sessionType] ?? report.sessionType}</p>
-        <h1>דוח אימון</h1>
-
-        <section>
-          <h2>סיכום</h2>
-          <ul>
+      <div className="report-grid">
+        <section className="card report-card span-2">
+          <h2>
+            <span className="ico">
+              <Sparkles />
+            </span>
+            סיכום
+          </h2>
+          <div className="summary-text">
             {report.summary?.map((item, i) => (
-              <li key={i}>{item}</li>
+              <p key={i}>{item}</p>
             ))}
-          </ul>
+          </div>
         </section>
 
-        <section>
-          <h2>נקודות חוזק</h2>
-          <ul className="strengths">
+        <section className="card report-card">
+          <h2>
+            <span className="ico ico-success">
+              <ThumbsUp />
+            </span>
+            מה עבד טוב
+          </h2>
+          <ul className="list">
             {report.strengths?.map((item, i) => (
-              <li key={i}>{item}</li>
+              <li key={i}>
+                <CheckCircle2 />
+                <span>{item}</span>
+              </li>
             ))}
           </ul>
         </section>
 
-        <section>
-          <h2>שיפורים מומלצים</h2>
+        <section className="card report-card">
+          <h2>
+            <span className="ico ico-accent">
+              <Lightbulb />
+            </span>
+            על מה לעבוד
+          </h2>
           {report.improvements?.map((item, i) => (
-            <div key={i} className="panel">
+            <div key={i} className="improvement">
+              <span className="improvement-num">{i + 1}</span>
               <h3>{item.title}</h3>
-              <p className="muted">{item.howToPractice}</p>
+              <p>{item.howToPractice}</p>
             </div>
           ))}
         </section>
 
         {report.rewriteSuggestion && (
-          <section>
-            <h2>הצעה לשיפור תשובה</h2>
-            <div className="panel">
-              <p>
-                <strong>שאלה:</strong> {report.rewriteSuggestion.question}
-              </p>
-              <p>
-                <strong>תשובה משופרת:</strong> {report.rewriteSuggestion.betterAnswer}
-              </p>
+          <section className="card report-card span-2">
+            <h2>
+              <span className="ico">
+                <RefreshCw />
+              </span>
+              תשובה בגרסה משופרת
+            </h2>
+            <div className="rewrite">
+              <div className="rewrite-box">
+                <small>השאלה</small>
+                <p>{report.rewriteSuggestion.question}</p>
+              </div>
+              <div className="rewrite-box better">
+                <small>כך אפשר לענות</small>
+                <p>{report.rewriteSuggestion.betterAnswer}</p>
+              </div>
             </div>
           </section>
         )}
-
-        <div className="row">
-          <button className="btn-primary" onClick={() => navigate('/session-builder')}>
-            התחל אימון חדש
-          </button>
-          <button className="btn-secondary" onClick={() => navigate('/')}>
-            חזור לדף הבית
-          </button>
-        </div>
       </div>
-    </div>
+    </article>
   )
 }
