@@ -141,6 +141,13 @@ python scripts/setup.py --local-livekit
 docker compose -f compose.yaml -f compose.livekit.yaml up --build
 ```
 
+### Demo mode (no keys at all)
+
+A scripted walkthrough for showing the product: the coach reads a fixed script with the browser's voice, live captions appear, and the session ends with a sample report. It is clearly labelled as a demo.
+
+- **Whole deployment:** build the web app with `VITE_DEMO_MODE=true` (no backend needed).
+- **Per visit:** when the backend has no LiveKit configuration, the setup page offers to continue in the demo.
+
 ### Without Docker
 
 Requires Python 3.12+, Node 20+ and [uv](https://github.com/astral-sh/uv). All three services read the same repo-root `.env`.

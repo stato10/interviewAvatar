@@ -6,6 +6,8 @@ import { Feedback } from '../components/Feedback'
 import { Stepper } from '../components/Stepper'
 import { VoiceWave } from '../components/VoiceWave'
 import { ApiError, getReport } from '../lib/api'
+import { DEMO_ID, demoReport } from '../lib/demo'
+import { loadSession } from '../lib/storage'
 import { SESSION_TYPE_LABELS, type ReportResponse } from '../lib/types'
 
 const POLL_INTERVAL_MS = 2500
@@ -21,6 +23,14 @@ export default function Report() {
   // The agent writes feedback asynchronously, so poll until it appears.
   useEffect(() => {
     if (!sessionId) return
+    if (sessionId === DEMO_ID) {
+      const config = loadSession()?.sessionConfig ?? { sessionType: 'interview' as const, options: {} }
+      setState({
+        kind: 'ready',
+        data: { id: 0, sessionId: DEMO_ID, report: demoReport(config), createdAt: new Date().toISOString() },
+      })
+      return
+    }
     const controller = new AbortController()
     const deadline = Date.now() + POLL_TIMEOUT_MS
     let timer = 0

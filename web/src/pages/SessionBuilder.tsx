@@ -4,6 +4,7 @@ import { AlertCircle } from 'lucide-react'
 import { AppShell } from '../components/AppShell'
 import { Stepper } from '../components/Stepper'
 import { ApiError, createSession } from '../lib/api'
+import { DEMO_BUILD, startDemo } from '../lib/demo'
 import { saveSession } from '../lib/storage'
 import { SESSION_TYPE_LABELS, type Level, type SessionOptions, type SessionType } from '../lib/types'
 
@@ -50,20 +51,30 @@ export default function SessionBuilder() {
   const [form, setForm] = useState<SessionOptions>({ level: 'mid', duration: 5 })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [offerDemo, setOfferDemo] = useState(false)
 
   const update = (patch: Partial<SessionOptions>) => setForm((f) => ({ ...f, ...patch }))
   const level = form.level ?? 'mid'
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
+    const sessionConfig = { sessionType, options: optionsFor(sessionType, form) }
+    if (DEMO_BUILD) {
+      startDemo(sessionConfig)
+      navigate('/pre-join')
+      return
+    }
     setLoading(true)
     setError(null)
+    setOfferDemo(false)
     try {
-      const data = await createSession({ sessionType, options: optionsFor(sessionType, form) })
+      const data = await createSession(sessionConfig)
       saveSession(data)
       navigate('/pre-join')
     } catch (err) {
       console.error('create session failed', err)
+      // Without keys the full coach can't run, but the scripted demo can.
+      setOfferDemo(err instanceof ApiError && (err.status === 503 || err.status === 0))
       if (err instanceof ApiError && err.status === 503)
         setError('השרת לא מחובר ל-LiveKit, ולכן אי אפשר לפתוח חדר. צריך להוסיף את פרטי LiveKit לקובץ .env ולהריץ שוב את python scripts/setup.py.')
       else if (err instanceof ApiError && err.status === 0) setError(err.message)
@@ -209,6 +220,18 @@ export default function SessionBuilder() {
               <div className="notice" role="alert">
                 <AlertCircle />
                 <span className="notice-body">{error}</span>
+                {offerDemo && (
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => {
+                      startDemo({ sessionType, options: optionsFor(sessionType, form) })
+                      navigate('/pre-join')
+                    }}
+                  >
+                    להמשיך בהדגמה
+                  </button>
+                )}
               </div>
             )}
 
