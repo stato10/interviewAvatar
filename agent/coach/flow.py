@@ -1,96 +1,63 @@
 """
-Flow management for different session types
-Event-driven flow without timers
+Event-driven session flow (NEXT / DONE), independent of LiveKit so it is unit-testable.
 """
-from typing import Optional, Callable, Dict
-from enum import Enum
+
+from __future__ import annotations
+
+import logging
+from enum import StrEnum
+
 from .config import SessionConfig
 
+logger = logging.getLogger("coach.flow")
 
-class FlowEvent(str, Enum):
-    """Flow events"""
+
+class FlowEvent(StrEnum):
+    START = "start_event"
     NEXT = "next_event"
     DONE = "done_event"
-    START = "start_event"
 
 
 class FlowState:
-    """Flow state manager"""
-    
+    """Tracks progress through a session. Transitions are idempotent after completion."""
+
     def __init__(self, session_config: SessionConfig):
         self.session_config = session_config
         self.current_step = 0
         self.is_active = False
         self.is_complete = False
-        self.event_handlers: Dict[FlowEvent, Callable] = {}
-    
-    def register_handler(self, event: FlowEvent, handler: Callable):
-        """Register event handler"""
-        self.event_handlers[event] = handler
-    
-    async def trigger_event(self, event: FlowEvent):
-        """Trigger flow event"""
-        if event in self.event_handlers:
-            await self.event_handlers[event]()
-    
-    def next_step(self):
-        """Move to next step"""
+
+    def start(self) -> bool:
+        if self.is_active or self.is_complete:
+            return False
+        self.is_active = True
+        self.current_step = 1
+        return True
+
+    def next_step(self) -> bool:
+        if self.is_complete:
+            return False
+        self.is_active = True
         self.current_step += 1
-    
-    def complete(self):
-        """Mark flow as complete"""
+        logger.info("%s: step %d", self.session_config.sessionType, self.current_step)
+        return True
+
+    def complete(self) -> bool:
+        """Mark as complete. Returns False if it was already complete (dedupe double DONE)."""
+        if self.is_complete:
+            return False
         self.is_complete = True
         self.is_active = False
+        logger.info("%s: complete after %d steps", self.session_config.sessionType, self.current_step)
+        return True
+
+    def handle(self, event: FlowEvent) -> bool:
+        return {
+            FlowEvent.START: self.start,
+            FlowEvent.NEXT: self.next_step,
+            FlowEvent.DONE: self.complete,
+        }[event]()
 
 
 def create_flow(session_config: SessionConfig) -> FlowState:
-    """Create flow based on session type"""
-    flow = FlowState(session_config)
-    
-    if session_config.sessionType == "interview":
-        setup_interview_flow(flow)
-    elif session_config.sessionType == "presentation":
-        setup_presentation_flow(flow)
-    elif session_config.sessionType == "simulation":
-        setup_simulation_flow(flow)
-    
-    return flow
-
-
-def setup_interview_flow(flow: FlowState):
-    """Setup interview flow"""
-    async def next_event():
-        flow.next_step()
-        # In real implementation, this would trigger next question
-        print(f"Interview: Moving to step {flow.current_step}")
-    
-    async def done_event():
-        flow.complete()
-        print("Interview: Session complete")
-    
-    flow.register_handler(FlowEvent.NEXT, next_event)
-    flow.register_handler(FlowEvent.DONE, done_event)
-
-
-def setup_presentation_flow(flow: FlowState):
-    """Setup presentation flow"""
-    async def done_event():
-        flow.complete()
-        print("Presentation: Session complete")
-    
-    flow.register_handler(FlowEvent.DONE, done_event)
-
-
-def setup_simulation_flow(flow: FlowState):
-    """Setup simulation flow"""
-    async def next_event():
-        flow.next_step()
-        print(f"Simulation: Moving to step {flow.current_step}")
-    
-    async def done_event():
-        flow.complete()
-        print("Simulation: Session complete")
-    
-    flow.register_handler(FlowEvent.NEXT, next_event)
-    flow.register_handler(FlowEvent.DONE, done_event)
-
+    return FlowState(session_config)

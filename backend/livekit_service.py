@@ -1,77 +1,60 @@
 """
-LiveKit service for room management and token generation
+LiveKit room management and access-token generation.
 """
-import os
-import time
-from typing import Optional
-from livekit import api
-from livekit.api import CreateRoomRequest, Room, UpdateRoomMetadataRequest
-from dotenv import load_dotenv
+
+from __future__ import annotations
+
 import json
+from datetime import timedelta
+from typing import Any
 
-load_dotenv(".env.local")
+from livekit import api
 
-# LiveKit credentials
-LIVEKIT_URL = os.getenv("LIVEKIT_URL")
-LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
-LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
+from config import Settings
 
-# Note: LiveKit credentials are required for full functionality
-# For testing, you can set these in .env file
-if not all([LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET]):
-    print("Warning: Missing LiveKit credentials. Some features may not work.")
-    print("Please set LIVEKIT_URL, LIVEKIT_API_KEY, and LIVEKIT_API_SECRET in .env file")
+
+class LiveKitNotConfigured(RuntimeError):
+    pass
 
 
 class LiveKitService:
-    """Service for managing LiveKit rooms and tokens"""
-    
-    def __init__(self):
-        if not all([LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET]):
-            raise ValueError("LiveKit credentials required. Please set in .env file")
-        self.api = api.LiveKitAPI(
-            url=LIVEKIT_URL,
-            api_key=LIVEKIT_API_KEY,
-            api_secret=LIVEKIT_API_SECRET,
+    def __init__(self, settings: Settings):
+        if not settings.livekit_configured:
+            raise LiveKitNotConfigured("Set LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET in the repo-root .env")
+        self._settings = settings
+        self._api: api.LiveKitAPI | None = None
+
+    @property
+    def url(self) -> str:
+        """The LiveKit URL handed to the browser."""
+        return self._settings.browser_livekit_url
+
+    def _client(self) -> api.LiveKitAPI:
+        # Created lazily: LiveKitAPI opens an aiohttp session, which needs a running loop.
+        if self._api is None:
+            self._api = api.LiveKitAPI(
+                url=self._settings.livekit_url,
+                api_key=self._settings.livekit_api_key,
+                api_secret=self._settings.livekit_api_secret,
+            )
+        return self._api
+
+    async def create_room(self, room_name: str, metadata: dict[str, Any]) -> api.Room:
+        return await self._client().room.create_room(
+            api.CreateRoomRequest(
+                name=room_name,
+                metadata=json.dumps(metadata, ensure_ascii=False),
+                empty_timeout=self._settings.room_empty_timeout_seconds,
+                max_participants=4,  # user + agent + optional avatar
+            )
         )
-    
-    async def create_room(self, room_name: str, metadata: Optional[dict] = None) -> Room:
-        """Create a new LiveKit room"""
-        request = CreateRoomRequest(
-            name=room_name,
-            metadata=json.dumps(metadata) if metadata else None,
-        )
-        room = await self.api.room.create_room(request)
-        return room
-    
-    async def get_room(self, room_name: str) -> Optional[Room]:
-        """Get room by name"""
-        try:
-            room = await self.api.room.get_room(room_name)
-            return room
-        except Exception:
-            return None
-    
-    async def update_room_metadata(self, room_name: str, metadata: dict) -> Room:
-        """Update room metadata"""
-        request = UpdateRoomMetadataRequest(
-            room=room_name,
-            metadata=json.dumps(metadata),
-        )
-        room = await self.api.room.update_room_metadata(request)
-        return room
-    
-    def generate_token(
-        self,
-        room_name: str,
-        participant_identity: str,
-        participant_name: str = "User",
-        is_agent: bool = False,
-    ) -> str:
-        """Generate JWT token for LiveKit room access"""
-        at = api.AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET) \
-            .with_identity(participant_identity) \
-            .with_name(participant_name) \
+
+    def generate_token(self, room_name: str, identity: str, name: str = "User") -> str:
+        return (
+            api.AccessToken(self._settings.livekit_api_key, self._settings.livekit_api_secret)
+            .with_identity(identity)
+            .with_name(name)
+            .with_ttl(timedelta(minutes=self._settings.token_ttl_minutes))
             .with_grants(
                 api.VideoGrants(
                     room_join=True,
@@ -81,19 +64,10 @@ class LiveKitService:
                     can_publish_data=True,
                 )
             )
-        
-        if is_agent:
-            # Agents need additional permissions
-            at.with_grants(
-                api.VideoGrants(
-                    room_join=True,
-                    room=room_name,
-                    can_publish=True,
-                    can_subscribe=True,
-                    can_publish_data=True,
-                    agent=True,
-                )
-            )
-        
-        return at.to_jwt()
+            .to_jwt()
+        )
 
+    async def aclose(self) -> None:
+        if self._api is not None:
+            await self._api.aclose()
+            self._api = None

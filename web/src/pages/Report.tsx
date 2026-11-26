@@ -1,140 +1,131 @@
-import { useEffect, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import axios from 'axios'
-import '../index.css'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
+import { Printer } from 'lucide-react'
+import { AppShell } from '../components/AppShell'
+import { Feedback } from '../components/Feedback'
+import { Stepper } from '../components/Stepper'
+import { VoiceWave } from '../components/VoiceWave'
+import { ApiError, getReport } from '../lib/api'
+import { DEMO_ID, demoReport } from '../lib/demo'
+import { loadSession } from '../lib/storage'
+import { SESSION_TYPE_LABELS, type ReportResponse } from '../lib/types'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
+const POLL_INTERVAL_MS = 2500
+const POLL_TIMEOUT_MS = 90_000
+
+type State = { kind: 'loading' } | { kind: 'ready'; data: ReportResponse } | { kind: 'missing' } | { kind: 'error' }
 
 export default function Report() {
   const { sessionId } = useParams()
-  const navigate = useNavigate()
-  const [report, setReport] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
+  const [state, setState] = useState<State>({ kind: 'loading' })
+  const [attempt, setAttempt] = useState(0)
 
+  // The agent writes feedback asynchronously, so poll until it appears.
   useEffect(() => {
-    const fetchReport = async () => {
+    if (!sessionId) return
+    if (sessionId === DEMO_ID) {
+      const config = loadSession()?.sessionConfig ?? { sessionType: 'interview' as const, options: {} }
+      setState({
+        kind: 'ready',
+        data: { id: 0, sessionId: DEMO_ID, report: demoReport(config), createdAt: new Date().toISOString() },
+      })
+      return
+    }
+    const controller = new AbortController()
+    const deadline = Date.now() + POLL_TIMEOUT_MS
+    let timer = 0
+    setState({ kind: 'loading' })
+
+    const poll = async () => {
       try {
-        const response = await axios.get(`${API_URL}/api/sessions/${sessionId}/report`)
-        setReport(response.data.report)
-      } catch (error: any) {
-        // 404 is expected if report hasn't been generated yet
-        if (error.response?.status === 404) {
-          console.log('Report not yet available - session may still be in progress')
-          setReport(null) // Will show "not found" message
+        const data = await getReport(sessionId, controller.signal)
+        setState({ kind: 'ready', data })
+      } catch (err) {
+        if (controller.signal.aborted) return
+        if (err instanceof ApiError && err.status === 404) {
+          if (Date.now() < deadline) timer = window.setTimeout(poll, POLL_INTERVAL_MS)
+          else setState({ kind: 'missing' })
         } else {
-          console.error('Error fetching report:', error)
+          console.error('failed to load report', err)
+          setState({ kind: 'error' })
         }
-      } finally {
-        setLoading(false)
       }
     }
+    void poll()
 
-    if (sessionId) {
-      fetchReport()
+    return () => {
+      controller.abort()
+      window.clearTimeout(timer)
     }
-  }, [sessionId])
-
-  if (loading) {
-    return (
-      <div className="container" style={{ paddingTop: '40px', textAlign: 'center' }}>
-        <p>טוען דוח...</p>
-      </div>
-    )
-  }
-
-  if (!report) {
-    return (
-      <div className="container" style={{ paddingTop: '40px', textAlign: 'center' }}>
-        <div className="card" style={{ maxWidth: '600px', margin: '0 auto' }}>
-          <h2>דוח לא זמין</h2>
-          <p style={{ marginTop: '16px', color: 'var(--color-text-secondary)' }}>
-            הדוח עדיין לא נוצר. זה יכול לקרות אם:
-          </p>
-          <ul style={{ marginTop: '16px', paddingRight: '24px', textAlign: 'right' }}>
-            <li>הסשן עדיין לא הסתיים</li>
-            <li>הסוכן עדיין מעבד את הדוח</li>
-            <li>לא נלחץ כפתור "סיום" (DONE)</li>
-          </ul>
-          <div style={{ marginTop: '24px', display: 'flex', gap: '12px', justifyContent: 'center' }}>
-            <button className="btn-primary" onClick={() => navigate('/')}>
-              חזור לדף הבית
-            </button>
-            <button className="btn-secondary" onClick={() => window.location.reload()}>
-              רענן
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
+  }, [sessionId, attempt])
 
   return (
-    <div className="container" style={{ paddingTop: '40px' }}>
-      <div className="card" style={{ maxWidth: '800px', margin: '0 auto' }}>
-        <h1>דוח אימון</h1>
-        
-        <div style={{ marginTop: '32px' }}>
-          <h2>סיכום</h2>
-          <ul style={{ marginTop: '16px', paddingRight: '24px' }}>
-            {report.summary?.map((item: string, index: number) => (
-              <li key={index} style={{ marginBottom: '8px' }}>{item}</li>
-            ))}
-          </ul>
-        </div>
+    <AppShell nav={<Stepper current={3} />}>
+      <div className="container page">
+        {state.kind === 'loading' && <Writing />}
 
-        <div style={{ marginTop: '32px' }}>
-          <h2>נקודות חוזק</h2>
-          <ul style={{ marginTop: '16px', paddingRight: '24px' }}>
-            {report.strengths?.map((item: string, index: number) => (
-              <li key={index} style={{ marginBottom: '8px', color: 'var(--color-success)' }}>
-                ✓ {item}
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <div style={{ marginTop: '32px' }}>
-          <h2>שיפורים מומלצים</h2>
-          <div style={{ marginTop: '16px' }}>
-            {report.improvements?.map((item: any, index: number) => (
-              <div key={index} style={{ 
-                marginBottom: '16px', 
-                padding: '16px', 
-                backgroundColor: 'var(--color-bg-secondary)',
-                borderRadius: '8px'
-              }}>
-                <h3 style={{ marginBottom: '8px' }}>{item.title}</h3>
-                <p style={{ color: 'var(--color-text-secondary)' }}>{item.howToPractice}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {report.rewriteSuggestion && (
-          <div style={{ marginTop: '32px' }}>
-            <h2>הצעה לשיפור תשובה</h2>
-            <div style={{ 
-              marginTop: '16px', 
-              padding: '16px', 
-              backgroundColor: 'var(--color-bg-secondary)',
-              borderRadius: '8px'
-            }}>
-              <p style={{ marginBottom: '8px' }}><strong>שאלה:</strong> {report.rewriteSuggestion.question}</p>
-              <p><strong>תשובה משופרת:</strong> {report.rewriteSuggestion.betterAnswer}</p>
+        {(state.kind === 'missing' || state.kind === 'error') && (
+          <div className="status">
+            <h1>{state.kind === 'missing' ? 'עדיין אין משוב לאימון הזה' : 'אין חיבור לשרת'}</h1>
+            <p>
+              {state.kind === 'missing'
+                ? 'המשוב נכתב רק אחרי שהמאמן הצטרף ושמע אותך מדבר. אם האימון היה קצר מאוד, נסו אימון נוסף.'
+                : 'המשוב שמור בשרת. בדקו את החיבור ונסו שוב.'}
+            </p>
+            <div className="form-actions">
+              <button className="btn btn-primary" onClick={() => setAttempt((a) => a + 1)}>
+                לבדוק שוב
+              </button>
+              <Link className="btn" to="/session-builder">
+                אימון חדש
+              </Link>
             </div>
           </div>
         )}
 
-        <div style={{ marginTop: '32px', display: 'flex', gap: '12px', justifyContent: 'flex-start' }}>
-          <button className="btn-primary" onClick={() => navigate('/session-builder')}>
-            התחל אימון חדש
-          </button>
-          <button className="btn-secondary" onClick={() => navigate('/')}>
-            חזור לדף הבית
-          </button>
-        </div>
+        {state.kind === 'ready' && <Document data={state.data} />}
       </div>
+    </AppShell>
+  )
+}
+
+function Writing() {
+  // Gentle synthetic signal: the coach is "writing".
+  const start = useRef(performance.now())
+  const level = useCallback(() => 0.35 + 0.2 * Math.sin((performance.now() - start.current) / 300), [])
+  return (
+    <div className="status" aria-busy="true">
+      <VoiceWave getLevel={level} bars={20} />
+      <h1>המאמן כותב את המשוב שלך</h1>
+      <p>הוא עובר על התמליל של השיחה. זה לוקח בדרך כלל כמה שניות.</p>
     </div>
   )
 }
 
+function Document({ data }: { data: ReportResponse }) {
+  const { report } = data
+  const date = data.createdAt
+    ? new Intl.DateTimeFormat('he-IL', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(data.createdAt))
+    : null
+  const context = [SESSION_TYPE_LABELS[report.sessionType] ?? report.sessionType, date].filter(Boolean).join(', ')
+
+  return (
+    <article className="doc">
+      <header className="doc-head">
+        <p className="doc-context">{context}</p>
+        <h1 className="doc-title">המשוב שלך</h1>
+        <div className="doc-actions">
+          <Link className="btn btn-primary" to="/session-builder">
+            אימון נוסף
+          </Link>
+          <button className="btn" onClick={() => window.print()}>
+            <Printer />
+            הדפסה או שמירה כ-PDF
+          </button>
+        </div>
+      </header>
+
+      <Feedback report={report} />
+    </article>
+  )
+}

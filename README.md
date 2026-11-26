@@ -21,7 +21,7 @@ Interview Avatar Coach is a full-stack reference app: users configure a coaching
 
 | Layer | Stack |
 |--------|--------|
-| **Web** | React 18, TypeScript, Vite, `livekit-client`, React Router |
+| **Web** | React 18, TypeScript, Vite, `livekit-client`, React Router, Lucide icons, IBM Plex Sans Hebrew |
 | **API** | FastAPI, SQLAlchemy, LiveKit Server API (rooms + JWT) |
 | **Agent** | `livekit-agents`, OpenAI STT/TTS, Silero VAD, multilingual turn detection |
 
@@ -32,10 +32,15 @@ Interview Avatar Coach is a full-stack reference app: users configure a coaching
 **For recruiters / tech screen:** this is a **full-stack, real-time** demo — Hebrew **RTL** UI, **LiveKit** room, optional **camera** context for the coach, and a structured **report** after the session.
 
 <p align="center">
-  <img src="docs/screenshots/demo-placeholder.svg" width="720" alt="Placeholder — replace with your own demo GIF or PNG captures" />
+  <img src="docs/screenshots/landing.png" width="820" alt="Landing page" />
 </p>
 
-**Highest impact next step:** add **one** short **GIF (10–15s)** or **2–3 PNGs** (Session Builder → Live room → Report). Replace the image above or add a row of thumbnails. Step-by-step filenames and tools: [`docs/screenshots/README.md`](docs/screenshots/README.md).
+<p align="center">
+  <img src="docs/screenshots/session-builder.png" width="405" alt="Session builder" />
+  <img src="docs/screenshots/report.png" width="405" alt="Coaching report" />
+</p>
+
+A live-room capture (coach orb, live transcript, controls) needs real LiveKit credentials — see [`docs/screenshots/README.md`](docs/screenshots/README.md).
 
 ---
 
@@ -45,9 +50,10 @@ Interview Avatar Coach is a full-stack reference app: users configure a coaching
 - **LiveKit** — Room creation, metadata (`sessionId` + `sessionConfig`), participant tokens.
 - **RTL + Hebrew** — Global RTL layout and Hebrew copy in the coach prompts and UI.
 - **Coach agent** — Listens on the room, reads config from metadata, multimodal-ready (latest camera frame appended on user turns when video is published).
-- **Flow hooks** — UI sends reliable data messages (`COACH_ACTION`: `NEXT` / `DONE`) for future tight coupling with scripted steps.
-- **Reports** — Agent POSTs structured JSON to the backend; Report page loads the latest report per session.
-- **Avatar** — Beyond Presence hooks with **voice-only fallback** when avatar is unavailable (see `agent/avatar.py`).
+- **Session controls** — **NEXT** makes the coach give quick feedback and move on; **DONE** triggers a spoken wrap-up and the report (`COACH_ACTION` data messages on topic `coach`).
+- **Live captions** — Real-time transcript of both sides (LiveKit text streams), agent state indicator (listening / thinking / speaking).
+- **AI reports** — On DONE (or when the user just leaves) the agent analyses the transcript with an LLM (structured JSON output), POSTs it to the backend with a shared secret, and notifies the browser (`REPORT_READY`). The Report page polls until it lands.
+- **Avatar** — Optional Beyond Presence avatar (`BEY_API_KEY`) with automatic **voice-only fallback**.
 
 ---
 
@@ -82,10 +88,10 @@ flowchart LR
 
 1. **Session Builder** → `POST /api/sessions` with `sessionConfig`.
 2. Backend creates/updates a LiveKit room with JSON metadata (`sessionId`, `sessionConfig`), stores the session row, returns `roomName`, `token`, `sessionId`, `livekitUrl`.
-3. **Pre-join** → Camera/mic check; session payload is stored in `localStorage` as `sessionData`.
-4. **Live room** → Client connects with the token and publishes A/V; **NEXT** / **DONE** publishes `COACH_ACTION` data packets.
-5. Worker agent joins the same room, parses metadata, runs STT/LLM/TTS, handles actions, submits report on done.
-6. **Report** → `GET /api/sessions/{id}/report`.
+3. **Pre-join** → Camera/mic preview with a level meter; device choices are carried into the room.
+4. **Live room** → Client connects with the token, publishes A/V, plays the coach's audio, shows live captions; **NEXT** / **DONE** publish `COACH_ACTION` data packets.
+5. The agent worker is dispatched to the room, reads metadata, runs STT → LLM → TTS, reacts to actions, and on DONE (or shutdown) analyses the transcript and POSTs the report, then sends `REPORT_READY`.
+6. **Report** → polls `GET /api/sessions/{id}/report` until the report is available.
 
 ---
 
@@ -98,13 +104,16 @@ interviewAvatar/
 │   ├── models.py          # Session, Report ORM models
 │   ├── db.py              # Engine, session dependency
 │   ├── livekit_service.py # Rooms, metadata, JWT
-│   └── migrations/        # Alembic (optional; see note below)
+│   └── migrations/        # Alembic (run automatically on startup)
 ├── agent/                 # LiveKit Agents worker
 │   ├── agent.py           # CoachAgent, session wiring
+│   ├── settings.py        # Env-driven configuration
 │   ├── avatar.py          # Beyond Presence / fallback
 │   └── coach/             # config, prompts, flow, report
 ├── web/                   # Vite + React frontend
-│   └── src/pages/         # Landing, SessionBuilder, PreJoin, LiveRoom, Report
+│   └── src/
+│       ├── lib/           # API client, protocol, types, storage
+│       └── pages/         # Landing, SessionBuilder, PreJoin, LiveRoom, Report
 ├── scripts/               # Maintainer helpers (e.g. GitHub About + Topics sync)
 ├── render.yaml            # Render Blueprint (static + web + worker)
 └── .github/workflows/     # CI
@@ -112,112 +121,78 @@ interviewAvatar/
 
 ---
 
-## Prerequisites
-
-- **Python** 3.12+ (agent); 3.11+ may work for backend; repo targets 3.12 for the agent (`agent/pyproject.toml`).
-- **Node.js** 20+ and npm.
-- [**uv**](https://github.com/astral-sh/uv) (recommended for the agent): `pip install uv` or the official installer.
-- Accounts/credentials for **LiveKit**, **OpenAI**, and optionally **Beyond Presence**.
-
----
-
 ## Quick start
 
-Run **three processes at once** — one terminal each:
-
-| # | Service | Directory | Typical command |
-|---|---------|-----------|----------------|
-| 1 | **Backend API** | `backend/` | `python main.py` |
-| 2 | **LiveKit agent** | `agent/` | `uv run python agent.py dev` |
-| 3 | **Web UI** | `web/` | `npm run dev` |
-
-Smoke-check: **`GET http://127.0.0.1:8000/health`** should return `"ok"` before joining a room.
-
-### 1. Backend
+You only need to add keys. Everything else is configured.
 
 ```bash
-cd backend
-python -m venv .venv
-.venv\Scripts\activate          # Windows
-# source .venv/bin/activate     # macOS/Linux
-pip install -r requirements.txt
+python scripts/setup.py          # creates .env, generates AGENT_API_KEY, lists what's missing
+# edit .env: OPENAI_API_KEY + the three LIVEKIT_* values
+python scripts/setup.py          # run again until it says "Ready"
+docker compose up --build        # backend :8000, agent, web :3000
 ```
 
-Create `backend/.env` (see [Environment](#environment-variables)). Tables are created on API startup (`init_db`); optionally run Alembic if you rely on migrations.
+Open **http://localhost:3000**.
+
+**No LiveKit Cloud account?** Run a local LiveKit server too. Then only `OPENAI_API_KEY` is needed:
 
 ```bash
-# Optional: alembic upgrade head
-python main.py
+python scripts/setup.py --local-livekit
+docker compose -f compose.yaml -f compose.livekit.yaml up --build
 ```
 
-The API listens on **http://127.0.0.1:8000** by default (`python main.py`).
+### Demo mode (no keys at all)
 
-### 2. Agent
+A scripted walkthrough for showing the product: the coach reads a fixed script with the browser's voice, live captions appear, and the session ends with a sample report. It is clearly labelled as a demo.
 
-```bash
-cd agent
-uv sync
-```
+- **Whole deployment:** build the web app with `VITE_DEMO_MODE=true` (no backend needed).
+- **Per visit:** when the backend has no LiveKit configuration, the setup page offers to continue in the demo.
 
-Create `agent/.env.local` with API keys and LiveKit settings. Run in development:
+### Without Docker
 
-```bash
-uv run python agent.py dev
-```
+Requires Python 3.12+, Node 20+ and [uv](https://github.com/astral-sh/uv). All three services read the same repo-root `.env`.
 
-### 3. Web
+| Terminal | Command |
+|----------|---------|
+| Backend | `cd backend && pip install -r requirements.txt && python main.py` |
+| Agent | `cd agent && uv sync && uv run python agent.py download-files && uv run python agent.py dev` |
+| Web | `cd web && npm install && npm run dev` |
 
-```bash
-cd web
-npm install
-```
-
-Create `web/.env`:
-
-```env
-VITE_API_URL=http://127.0.0.1:8000
-VITE_LIVEKIT_URL=wss://your-livekit-host
-```
-
-```bash
-npm run dev
-```
-
-Vite serves on **http://localhost:3000**. Dev server proxies **`/api` → http://127.0.0.1:8000** (`vite.config.mts`). If `VITE_API_URL` is unset, **`SessionBuilder` and `Report` call `http://127.0.0.1:8000`** — same port as the default backend.
+The agent refuses to start with a clear list if a required key is missing.
 
 ---
 
-## Environment variables
+## Configuration
 
-### Backend (`backend/.env`)
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `LIVEKIT_URL` | Yes | WebSocket URL of your LiveKit server (e.g. `wss://…`) |
-| `LIVEKIT_API_KEY` | Yes | LiveKit API key |
-| `LIVEKIT_API_SECRET` | Yes | LiveKit API secret |
-| `DATABASE_URL` | No | Default `sqlite:///./interview_avatar.db`; use Postgres in production |
-
-`livekit_service.py` also loads `.env.local` if present.
-
-### Agent (`agent/.env.local` or `.env`)
+Everything lives in **one file: `.env` at the repo root** (template: [`.env.example`](.env.example)). Real environment variables (Docker, Render) take precedence.
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `OPENAI_API_KEY` | Yes | OpenAI API key (STT/TTS; LLM may use LiveKit inference routing) |
-| `LIVEKIT_URL` | Yes | Same as backend |
-| `LIVEKIT_API_KEY` | Yes | Same as backend |
-| `LIVEKIT_API_SECRET` | Yes | Same as backend |
-| `BACKEND_URL` | No | Default `http://localhost:8000` — report POST target |
-| `BEY_API_KEY` | No | Beyond Presence (optional) |
-| `BEY_AVATAR_ID` | No | Avatar id (optional) |
+| `OPENAI_API_KEY` | Yes | Conversation, transcription and the feedback report |
+| `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | Yes* | LiveKit Cloud project keys. *Not needed with `compose.livekit.yaml` |
+| `AGENT_API_KEY` | Yes | Shared secret between backend and agent. Generated by `scripts/setup.py` |
+| `COACH_MODE` | No | `realtime` (default): one speech-to-speech model. `pipeline`: transcription → text model → speech |
+| `COACH_LANGUAGE` | No | Default `he` |
+| `COACH_*_MODEL` | No | Force a model ID. By default the agent picks the newest available one (below) |
+| `ENABLE_VISION` | No | Default `true`: the coach sees camera frames (more tokens) |
+| `ENABLE_NOISE_CANCELLATION` | No | Default `true`. Set `false` unless you use LiveKit Cloud |
+| `BEY_API_KEY` / `BEY_AVATAR_ID` | No | Beyond Presence video avatar. Empty = voice-only |
+| `DATABASE_URL` | No | Default SQLite. Use Postgres in production (`postgres://` accepted) |
+| `CORS_ORIGINS` | No | Allowed browser origins, comma-separated |
+| `LIVEKIT_PUBLIC_URL` | No | LiveKit URL for the browser when the server reaches LiveKit internally |
 
-### Web (`web/.env`)
+### Model selection
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `VITE_API_URL` | Recommended | FastAPI base URL (e.g. `http://127.0.0.1:8000`) |
-| `VITE_LIVEKIT_URL` | Yes* | LiveKit WebSocket URL (*or rely on `livekitUrl` from create-session response) |
+OpenAI renames and retires audio models often, so no single model ID is hard-coded. At startup the agent lists the models your key can use and takes the first available one per role ([`agent/coach/models.py`](agent/coach/models.py)):
+
+| Role | Preference (newest first) |
+|------|---------------------------|
+| Realtime conversation | `gpt-realtime-2.1` → `gpt-realtime-2` → `gpt-realtime` |
+| Transcription in realtime | `gpt-live-transcribe` → `gpt-realtime-whisper` → `gpt-4o-transcribe` → `whisper-1` |
+| Pipeline: STT / LLM / TTS | `gpt-live-transcribe`… / `gpt-5.4-mini`… / `gpt-4o-mini-tts`… |
+| Feedback report | `gpt-5.4-mini` → `gpt-5-mini` → `gpt-4.1-mini` → `gpt-4o-mini` |
+
+IDs come from the official `openai` Python SDK type definitions. Hebrew quality per model still needs to be verified in a real session.
 
 ---
 
@@ -227,7 +202,7 @@ Vite serves on **http://localhost:3000**. Dev server proxies **`/api` → http:/
 |--------|------|-------------|
 | `POST` | `/api/sessions` | Create session; body: `{ "sessionConfig": { "sessionType", "options" } }` |
 | `GET` | `/api/sessions/{sessionId}` | Session details |
-| `POST` | `/api/sessions/{sessionId}/report` | Save report (typically called by the agent) |
+| `POST` | `/api/sessions/{sessionId}/report` | Save report (agent only; requires `X-Agent-Key` when `AGENT_API_KEY` is set) |
 | `GET` | `/api/sessions/{sessionId}/report` | Latest report for the session |
 | `GET` | `/health` | Health check |
 
@@ -240,42 +215,55 @@ Report JSON shape matches `ReportData` in `backend/main.py` (`summary`, `strengt
 This repo includes [`render.yaml`](render.yaml) for a [Render Blueprint](https://render.com/docs/infrastructure-as-code):
 
 1. Render → **New** → **Blueprint** → select this repository.
-2. Set required secrets (`OPENAI_API_KEY`, LiveKit trio, plus `VITE_LIVEKIT_URL` for the static site).
-3. Apply — provisions static frontend, FastAPI web service, and agent worker.
+2. Fill in the secrets Render prompts for: `OPENAI_API_KEY` and the LiveKit trio (backend + agent), optionally `BEY_*` and `COACH_MODE`.
+3. Apply — provisions a Postgres database, the static frontend (with SPA rewrites), the FastAPI service (`/health` check) and the agent worker. `AGENT_API_KEY` is generated and shared between backend and agent automatically.
 
-Update hard-coded hostnames inside `render.yaml` if your Render service names differ.
+If you rename services, update `VITE_API_URL`, `CORS_ORIGINS` and `BACKEND_URL` in `render.yaml` to match.
 
 ---
 
 ## Scripts and tooling
 
-| Location | Command | Purpose |
-|----------|---------|---------|
-| `backend/` | `python main.py` | Run FastAPI with Uvicorn on port 8000 |
-| `backend/` | `uvicorn main:app --reload --host 0.0.0.0 --port 8000` | Reloading dev server |
-| `agent/` | `uv run python agent.py dev` | Local agent dev |
-| `agent/` | `uv run python agent.py start` | Production-style start (Render worker) |
-| `web/` | `npm run dev` | Vite dev server |
-| `web/` | `npm run build` | Production build → `web/dist` |
-| Repo root | `start.ps1` | Optional helper (Windows) |
+| Command | Purpose |
+|---------|---------|
+| `python scripts/setup.py [--local-livekit]` | Create `.env`, generate secrets, check configuration |
+| `docker compose up --build` | Run the full stack |
+| `uv run python agent.py dev` | Agent with auto-reload (in `agent/`) |
+| `uv run python agent.py download-files` | Download VAD / turn-detector models (done at image build) |
+| `npm run build` | Production web build with type-check (in `web/`) |
+| `start.ps1` | Windows helper that opens the three services in separate windows |
+
+---
+
+## Testing
+
+```bash
+cd backend && pip install -r requirements-dev.txt && ruff check . && pytest -q
+cd agent   && uv sync && uv run ruff check . && uv run pytest -q
+cd web     && npm ci && npm test && npm run build   # build includes tsc type-check
+```
+
+CI runs all three on every push and PR.
 
 ---
 
 ## Troubleshooting
 
-- **Frontend cannot reach API** — Run the backend on **8000** (default), or set `VITE_API_URL` and update the `/api` proxy `target` in `vite.config.mts` together.
-- **`VITE_LIVEKIT_URL` / placeholder LiveKit URL** — LiveRoom blocks navigation if the URL is still the placeholder; set env or rely on backend returning `livekitUrl`.
-- **`Report not found` after DONE** — The UI waits briefly then navigates; slow networks or delayed agent POST may require a refresh; consider polling in production.
-- **LiveKit credential warnings on backend startup** — Ensure `.env`/`.env.local` in `backend/` contains all three LiveKit variables before creating rooms.
+- **`POST /api/sessions` → 503** — LiveKit variables are missing in `.env`. `GET /health` shows `"livekit": false`. Run `python scripts/setup.py`.
+- **Coach never joins** — The agent worker isn't running or uses different LiveKit credentials than the backend. Check the agent logs for `registered worker`.
+- **No coach audio** — Browsers block autoplay until a user gesture; the room shows a **הפעל קול** button in that case.
+- **Report never appears** — Check the agent logs for `report delivered`. A `401` means `AGENT_API_KEY` differs between backend and agent; a connection error means `BACKEND_URL` is wrong.
+- **Noise-cancellation errors on self-hosted LiveKit** — Set `ENABLE_NOISE_CANCELLATION=false`.
+- **A model ID was rejected** — The agent logs which models it picked at startup. Force one with `COACH_REALTIME_MODEL` etc., or switch to `COACH_MODE=pipeline`.
+- **Local LiveKit: browser connects but no audio** — UDP 7882 must be reachable; the dev config advertises `127.0.0.1`, so the browser must run on the same machine.
 
 ---
 
-## Roadmap notes (maintainers)
+## Roadmap
 
-- Tighter wiring of **NEXT/DONE** to explicit LLM turn scripts (beyond flow `print`/step counters).
-- **Reports** grounded in transcript analysis rather than placeholders.
-- **Avatar** wired to Beyond Presence SDK when credentials are provided.
-- **Single source of truth** for DB schema: Alembic migrations vs `init_db()` `create_all`.
+- Question banks per role and explicit interview stages.
+- Session history and progress tracking per user (auth).
+- Scoring rubrics in the report (structure, clarity, confidence).
 
 ---
 

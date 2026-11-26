@@ -117,8 +117,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -159,3 +159,9 @@ Thumbs.db
 *.swp
 *.swo
 .qodo/
+
+# Keep env templates
+!.env.example
+backend/tests/test.db
+.pytest_cache/
+.ruff_cache/

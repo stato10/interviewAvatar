@@ -1,50 +1,57 @@
 """
-Database models for sessions and reports
+ORM models for sessions and reports.
 """
-from sqlalchemy import Column, String, DateTime, Text, JSON, Integer
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.sql import func
-from datetime import datetime
-import uuid
 
-Base = declarative_base()
+from __future__ import annotations
+
+import uuid
+from datetime import datetime
+from typing import Any
+
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+def _iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
 
 
 class Session(Base):
-    """Session model - stores session configuration and metadata"""
     __tablename__ = "sessions"
-    
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    room_name = Column(String, unique=True, nullable=False, index=True)
-    session_type = Column(String, nullable=False)  # "interview", "presentation", "simulation"
-    session_config = Column(JSON, nullable=False)  # Full sessionConfig JSON
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    
-    def to_dict(self):
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    room_name: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    session_type: Mapped[str] = mapped_column(String(32))
+    session_config: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now())
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "sessionId": self.id,
             "roomName": self.room_name,
             "sessionType": self.session_type,
             "sessionConfig": self.session_config,
-            "createdAt": self.created_at.isoformat() if self.created_at else None,
+            "createdAt": _iso(self.created_at),
         }
 
 
 class Report(Base):
-    """Report model - stores session reports"""
     __tablename__ = "reports"
-    
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    session_id = Column(String, nullable=False, index=True)
-    report_data = Column(JSON, nullable=False)  # Full report JSON
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
-    def to_dict(self):
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(36), ForeignKey("sessions.id", ondelete="CASCADE"), index=True)
+    report_data: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "sessionId": self.session_id,
             "report": self.report_data,
-            "createdAt": self.created_at.isoformat() if self.created_at else None,
+            "createdAt": _iso(self.created_at),
         }
-
