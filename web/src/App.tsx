@@ -7,12 +7,7 @@ import Report from './pages/Report'
 
 function App() {
   return (
-    <BrowserRouter
-      future={{
-        v7_startTransition: true,
-        v7_relativeSplatPath: true,
-      }}
-    >
+    <BrowserRouter>
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/session-builder" element={<SessionBuilder />} />

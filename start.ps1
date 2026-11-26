@@ -1,5 +1,5 @@
 # AI Interview Coach - Startup Script
-# Starts Backend (8000), Agent, and Web (5173)
+# Starts Backend (8000), Agent, and Web (3000)
 
 $ErrorActionPreference = "Stop"
 
@@ -18,7 +18,7 @@ Write-Host ">>> STARTING AI INTERVIEW COACH <<<" -ForegroundColor Green
 
 # 1. Cleanup Ports 8000 (Backend) and 5173 (Frontend)
 Check-Port 8000
-Check-Port 5173
+Check-Port 3000
 
 # 2. Start Backend
 Write-Host "1. Starting Backend (Port 8000)..." -ForegroundColor Cyan
@@ -35,9 +35,9 @@ $frontendReq = Start-Process -FilePath "powershell" -ArgumentList "-NoExit", "-C
 # 5. Launch Browser
 Start-Sleep -Seconds 5
 Write-Host "4. Opening Browser..." -ForegroundColor Green
-Start-Process "http://localhost:5173"
+Start-Process "http://localhost:3000"
 
 Write-Host ">>> ALL SYSTEMS GO <<<" -ForegroundColor Green
 Write-Host "Backend: http://localhost:8000"
 Write-Host "Agent: agent.py dev"
-Write-Host "Web UI: http://localhost:5173"
+Write-Host "Web UI: http://localhost:3000"

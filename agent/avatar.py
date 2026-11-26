@@ -1,77 +1,40 @@
 """
-Beyond Presence Avatar integration with fallback
+Optional Beyond Presence avatar. Falls back to voice-only when not configured or on failure.
 """
-import os
-import asyncio
-from typing import Optional
-from dotenv import load_dotenv
-from livekit.plugins import bey
 
-load_dotenv(".env")
+from __future__ import annotations
 
-BEY_API_KEY = os.getenv("BEY_API_KEY")
-BEY_AVATAR_ID = os.getenv("BEY_AVATAR_ID", "default")
+import logging
 
+from livekit import rtc
+from livekit.agents import AgentSession
 
-class AvatarManager:
-    """Manages Beyond Presence avatar integration"""
-    
-    def __init__(self):
-        self.api_key = BEY_API_KEY
-        self.avatar_id = BEY_AVATAR_ID
-        self.enabled = bool(self.api_key)
-        self.avatar_participant = None
-    
-    async def create_avatar_participant(self, room) -> Optional[object]:
-        """
-        Create avatar participant in room
-        Returns avatar participant or None if failed
-        """
-        if not self.enabled:
-            print("Avatar disabled: BEY_API_KEY not set")
-            return None
-        
-        try:
-            # Import Beyond Presence SDK (if available)
-            # This is a placeholder - actual implementation depends on Beyond Presence SDK
-            # from beyond_presence import AvatarClient
-            
-            # Example implementation:
-            # avatar_client = AvatarClient(api_key=self.api_key)
-            # avatar_participant = await avatar_client.create_participant(
-            #     room_name=room.name,
-            #     avatar_id=self.avatar_id
-            # )
-            
-            # For now, return None to use fallback
-            print("Avatar integration: Using fallback (voice-only coach)")
-            return None
-            
-        except Exception as e:
-            print(f"Error creating avatar: {e}")
-            print("Falling back to voice-only coach")
-            return None
-    
-    async def cleanup(self):
-        """Cleanup avatar resources"""
-        if self.avatar_participant:
-            try:
-                # Cleanup avatar participant
-                pass
-            except Exception as e:
-                print(f"Error cleaning up avatar: {e}")
+from settings import settings
+
+logger = logging.getLogger("coach.avatar")
 
 
 def should_use_avatar() -> bool:
-    """Check if avatar should be used"""
-    return bool(BEY_API_KEY)
+    return bool(settings.bey_api_key)
 
 
-async def setup_avatar(room) -> Optional[object]:
-    """Setup avatar for room, returns avatar participant or None"""
+async def start_avatar(session: AgentSession, room: rtc.Room) -> bool:
+    """Start the avatar for this session. Must be called *before* ``session.start``.
+
+    Returns True when the avatar is publishing, False when running voice-only.
+    """
     if not should_use_avatar():
-        return None
-    
-    manager = AvatarManager()
-    return await manager.create_avatar_participant(room)
+        return False
+    try:
+        from livekit.plugins import bey
 
+        kwargs = {"api_key": settings.bey_api_key}
+        if settings.bey_avatar_id:
+            kwargs["avatar_id"] = settings.bey_avatar_id
+        avatar = bey.AvatarSession(**kwargs)
+        await avatar.start(session, room=room)
+        logger.info("Beyond Presence avatar started")
+        return True
+    except Exception:
+        logger.exception("avatar setup failed, falling back to voice-only coach")
+        return False

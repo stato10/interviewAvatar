@@ -1,25 +1,30 @@
 import { useNavigate } from 'react-router-dom'
-import '../index.css'
+
+const FEATURES = [
+  { title: 'ראיון עבודה', text: 'שאלות מותאמות לתפקיד ולרמה, עם משוב אחרי כל תשובה.' },
+  { title: 'פרזנטציה', text: 'המאמן מקשיב, ומחזיר משוב על מבנה, קצב ושפת גוף.' },
+  { title: 'סימולציית לחץ', text: 'תרחיש מאתגר שמעלה את רמת הקושי בהדרגה.' },
+]
 
 export default function Landing() {
   const navigate = useNavigate()
-
   return (
-    <div className="container" style={{ paddingTop: '80px' }}>
-      <div className="card" style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'center' }}>
+    <div className="container page">
+      <div className="card text-center hero">
         <h1>Interview Avatar Coach</h1>
-        <p style={{ fontSize: '18px', color: 'var(--color-text-secondary)', marginBottom: '32px' }}>
-          אימון מקצועי לראיונות עבודה, פרזנטציות וסימולציות לחץ
-        </p>
-        <button 
-          className="btn-primary" 
-          onClick={() => navigate('/session-builder')}
-          style={{ padding: '12px 32px', fontSize: '18px' }}
-        >
+        <p className="lead">אימון קולי בזמן אמת לראיונות עבודה, פרזנטציות וסימולציות לחץ — ודוח משוב מפורט בסוף.</p>
+        <button className="btn-primary btn-lg" onClick={() => navigate('/session-builder')}>
           התחל אימון
         </button>
+      </div>
+      <div className="features">
+        {FEATURES.map((f) => (
+          <div key={f.title} className="card">
+            <h3>{f.title}</h3>
+            <p className="muted">{f.text}</p>
+          </div>
+        ))}
       </div>
     </div>
   )
 }
-

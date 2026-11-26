@@ -1,27 +1,48 @@
 """
-Session configuration models and parsing
+Session configuration models and room-metadata parsing.
 """
-from typing import Dict, Any, Optional
-from pydantic import BaseModel
+
+from __future__ import annotations
+
 import json
+import logging
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field, ValidationError
+
+logger = logging.getLogger("coach.config")
+
+SessionType = Literal["interview", "presentation", "simulation"]
 
 
 class SessionConfig(BaseModel):
-    """Session configuration from room metadata"""
-    sessionType: str  # "interview", "presentation", "simulation"
-    options: Dict[str, Any] = {}
+    """Session configuration, as written into LiveKit room metadata by the backend."""
+
+    sessionType: SessionType = "interview"
+    options: dict[str, Any] = Field(default_factory=dict)
 
 
-def parse_session_config(metadata: Optional[str]) -> Optional[SessionConfig]:
-    """Parse session config from room metadata"""
+class RoomContext(BaseModel):
+    """Everything the agent needs from room metadata."""
+
+    sessionId: str | None = None
+    sessionConfig: SessionConfig = Field(default_factory=SessionConfig)
+
+
+def parse_room_metadata(metadata: str | None) -> RoomContext:
+    """Parse room metadata; never raises, falls back to defaults."""
+    if not metadata:
+        logger.warning("room has no metadata, using default session config")
+        return RoomContext()
+    try:
+        return RoomContext.model_validate(json.loads(metadata))
+    except (json.JSONDecodeError, ValidationError) as exc:
+        logger.error("invalid room metadata (%s), using defaults", exc)
+        return RoomContext()
+
+
+def parse_session_config(metadata: str | None) -> SessionConfig | None:
+    """Backward-compatible helper: return only the session config."""
     if not metadata:
         return None
-    
-    try:
-        data = json.loads(metadata)
-        session_config_data = data.get("sessionConfig", {})
-        return SessionConfig(**session_config_data)
-    except Exception as e:
-        print(f"Error parsing session config: {e}")
-        return None
-
+    return parse_room_metadata(metadata).sessionConfig

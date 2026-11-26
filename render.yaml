@@ -1,39 +1,72 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# Service URLs below assume the default service names; adjust if you rename them.
+
+databases:
+  - name: interview-avatar-db
+    plan: free
+    databaseName: interview_avatar
+    user: interview_avatar
+
 services:
-  # Static Frontend (React + Vite)
+  # Static frontend (React + Vite)
   - type: web
     name: interview-avatar-frontend
-    env: static
-    buildCommand: cd web && npm install && npm run build
+    runtime: static
+    buildCommand: cd web && npm ci && npm run build
     staticPublishPath: ./web/dist
+    routes:
+      # SPA: let React Router handle deep links like /report/<id>
+      - type: rewrite
+        source: /*
+        destination: /index.html
     envVars:
       - key: VITE_API_URL
         value: https://interview-avatar-backend.onrender.com
-      - key: VITE_LIVEKIT_URL
-        sync: false # Set this in Render dashboard
 
-  # FastAPI Backend
+  # FastAPI backend
   - type: web
     name: interview-avatar-backend
-    env: python
-    buildCommand: cd backend && pip install -r requirements.txt
-    startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
+    runtime: python
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers
+    healthCheckPath: /health
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: DATABASE_URL
+        fromDatabase:
+          name: interview-avatar-db
+          property: connectionString
+      - key: CORS_ORIGINS
+        value: https://interview-avatar-frontend.onrender.com
+      - key: AGENT_API_KEY
+        generateValue: true
       - key: LIVEKIT_URL
         sync: false
       - key: LIVEKIT_API_KEY
         sync: false
       - key: LIVEKIT_API_SECRET
         sync: false
-      - key: DATABASE_URL
-        value: sqlite:///./interview_avatar.db
 
-  # LiveKit Python Agent (Runs as a background worker)
+  # LiveKit agent (background worker)
   - type: worker
     name: interview-avatar-agent
-    env: python
-    buildCommand: cd agent && curl -LsSf https://astral.sh/uv/install.sh | sh && $HOME/.local/bin/uv sync
-    startCommand: cd agent && $HOME/.local/bin/uv run python agent.py start
+    runtime: python
+    buildCommand: >-
+      pip install uv &&
+      cd agent && uv sync --frozen --no-dev &&
+      uv run --no-dev python agent.py download-files
+    startCommand: cd agent && uv run --no-dev python agent.py start
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: BACKEND_URL
+        value: https://interview-avatar-backend.onrender.com
+      - key: AGENT_API_KEY
+        fromService:
+          type: web
+          name: interview-avatar-backend
+          envVarKey: AGENT_API_KEY
       - key: OPENAI_API_KEY
         sync: false
       - key: LIVEKIT_URL
@@ -42,8 +75,6 @@ services:
         sync: false
       - key: LIVEKIT_API_SECRET
         sync: false
-      - key: BACKEND_URL
-        value: https://interview-avatar-backend.onrender.com
       - key: BEY_API_KEY
         sync: false
       - key: BEY_AVATAR_ID

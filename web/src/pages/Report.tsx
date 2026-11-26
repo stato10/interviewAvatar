@@ -1,66 +1,78 @@
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import axios from 'axios'
-import '../index.css'
+import { useNavigate, useParams } from 'react-router-dom'
+import { ApiError, getReport } from '../lib/api'
+import { SESSION_TYPE_LABELS, type ReportData } from '../lib/types'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
+const POLL_INTERVAL_MS = 2500
+const POLL_TIMEOUT_MS = 90_000
+
+type State = { kind: 'loading' } | { kind: 'ready'; report: ReportData } | { kind: 'missing' } | { kind: 'error' }
 
 export default function Report() {
   const { sessionId } = useParams()
   const navigate = useNavigate()
-  const [report, setReport] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
+  const [state, setState] = useState<State>({ kind: 'loading' })
+  const [attempt, setAttempt] = useState(0)
 
+  // The agent writes the report asynchronously, so poll until it appears.
   useEffect(() => {
-    const fetchReport = async () => {
+    if (!sessionId) return
+    const controller = new AbortController()
+    const deadline = Date.now() + POLL_TIMEOUT_MS
+    let timer = 0
+    setState({ kind: 'loading' })
+
+    const poll = async () => {
       try {
-        const response = await axios.get(`${API_URL}/api/sessions/${sessionId}/report`)
-        setReport(response.data.report)
-      } catch (error: any) {
-        // 404 is expected if report hasn't been generated yet
-        if (error.response?.status === 404) {
-          console.log('Report not yet available - session may still be in progress')
-          setReport(null) // Will show "not found" message
+        const res = await getReport(sessionId, controller.signal)
+        setState({ kind: 'ready', report: res.report })
+      } catch (err) {
+        if (controller.signal.aborted) return
+        if (err instanceof ApiError && err.status === 404) {
+          if (Date.now() < deadline) timer = window.setTimeout(poll, POLL_INTERVAL_MS)
+          else setState({ kind: 'missing' })
         } else {
-          console.error('Error fetching report:', error)
+          console.error('failed to load report', err)
+          setState({ kind: 'error' })
         }
-      } finally {
-        setLoading(false)
       }
     }
+    void poll()
 
-    if (sessionId) {
-      fetchReport()
+    return () => {
+      controller.abort()
+      window.clearTimeout(timer)
     }
-  }, [sessionId])
+  }, [sessionId, attempt])
 
-  if (loading) {
+  if (state.kind === 'loading') {
     return (
-      <div className="container" style={{ paddingTop: '40px', textAlign: 'center' }}>
-        <p>טוען דוח...</p>
+      <div className="container page text-center">
+        <div className="card">
+          <div className="spinner" aria-hidden />
+          <h2>מכין את הדוח שלך…</h2>
+          <p className="muted">המאמן מנתח את השיחה. זה לוקח בדרך כלל כמה שניות.</p>
+        </div>
       </div>
     )
   }
 
-  if (!report) {
+  if (state.kind !== 'ready') {
     return (
-      <div className="container" style={{ paddingTop: '40px', textAlign: 'center' }}>
-        <div className="card" style={{ maxWidth: '600px', margin: '0 auto' }}>
-          <h2>דוח לא זמין</h2>
-          <p style={{ marginTop: '16px', color: 'var(--color-text-secondary)' }}>
-            הדוח עדיין לא נוצר. זה יכול לקרות אם:
+      <div className="container page text-center">
+        <div className="card">
+          <h2>{state.kind === 'missing' ? 'הדוח עדיין לא זמין' : 'שגיאה בטעינת הדוח'}</h2>
+          <p className="muted">
+            {state.kind === 'missing'
+              ? 'ייתכן שהסשן היה קצר מדי, או שהסוכן לא היה מחובר. נסה לרענן בעוד רגע.'
+              : 'לא ניתן להתחבר לשרת כרגע.'}
           </p>
-          <ul style={{ marginTop: '16px', paddingRight: '24px', textAlign: 'right' }}>
-            <li>הסשן עדיין לא הסתיים</li>
-            <li>הסוכן עדיין מעבד את הדוח</li>
-            <li>לא נלחץ כפתור "סיום" (DONE)</li>
-          </ul>
-          <div style={{ marginTop: '24px', display: 'flex', gap: '12px', justifyContent: 'center' }}>
-            <button className="btn-primary" onClick={() => navigate('/')}>
-              חזור לדף הבית
+          <div className="row row-center">
+            <button className="btn-primary" onClick={() => setAttempt((a) => a + 1)}>
+              נסה שוב
             </button>
-            <button className="btn-secondary" onClick={() => window.location.reload()}>
-              רענן
+            <button className="btn-secondary" onClick={() => navigate('/')}>
+              דף הבית
             </button>
           </div>
         </div>
@@ -68,64 +80,56 @@ export default function Report() {
     )
   }
 
+  const { report } = state
   return (
-    <div className="container" style={{ paddingTop: '40px' }}>
-      <div className="card" style={{ maxWidth: '800px', margin: '0 auto' }}>
+    <div className="container page">
+      <div className="card card-wide report">
+        <p className="muted">{SESSION_TYPE_LABELS[report.sessionType] ?? report.sessionType}</p>
         <h1>דוח אימון</h1>
-        
-        <div style={{ marginTop: '32px' }}>
+
+        <section>
           <h2>סיכום</h2>
-          <ul style={{ marginTop: '16px', paddingRight: '24px' }}>
-            {report.summary?.map((item: string, index: number) => (
-              <li key={index} style={{ marginBottom: '8px' }}>{item}</li>
+          <ul>
+            {report.summary?.map((item, i) => (
+              <li key={i}>{item}</li>
             ))}
           </ul>
-        </div>
+        </section>
 
-        <div style={{ marginTop: '32px' }}>
+        <section>
           <h2>נקודות חוזק</h2>
-          <ul style={{ marginTop: '16px', paddingRight: '24px' }}>
-            {report.strengths?.map((item: string, index: number) => (
-              <li key={index} style={{ marginBottom: '8px', color: 'var(--color-success)' }}>
-                ✓ {item}
-              </li>
+          <ul className="strengths">
+            {report.strengths?.map((item, i) => (
+              <li key={i}>{item}</li>
             ))}
           </ul>
-        </div>
+        </section>
 
-        <div style={{ marginTop: '32px' }}>
+        <section>
           <h2>שיפורים מומלצים</h2>
-          <div style={{ marginTop: '16px' }}>
-            {report.improvements?.map((item: any, index: number) => (
-              <div key={index} style={{ 
-                marginBottom: '16px', 
-                padding: '16px', 
-                backgroundColor: 'var(--color-bg-secondary)',
-                borderRadius: '8px'
-              }}>
-                <h3 style={{ marginBottom: '8px' }}>{item.title}</h3>
-                <p style={{ color: 'var(--color-text-secondary)' }}>{item.howToPractice}</p>
-              </div>
-            ))}
-          </div>
-        </div>
+          {report.improvements?.map((item, i) => (
+            <div key={i} className="panel">
+              <h3>{item.title}</h3>
+              <p className="muted">{item.howToPractice}</p>
+            </div>
+          ))}
+        </section>
 
         {report.rewriteSuggestion && (
-          <div style={{ marginTop: '32px' }}>
+          <section>
             <h2>הצעה לשיפור תשובה</h2>
-            <div style={{ 
-              marginTop: '16px', 
-              padding: '16px', 
-              backgroundColor: 'var(--color-bg-secondary)',
-              borderRadius: '8px'
-            }}>
-              <p style={{ marginBottom: '8px' }}><strong>שאלה:</strong> {report.rewriteSuggestion.question}</p>
-              <p><strong>תשובה משופרת:</strong> {report.rewriteSuggestion.betterAnswer}</p>
+            <div className="panel">
+              <p>
+                <strong>שאלה:</strong> {report.rewriteSuggestion.question}
+              </p>
+              <p>
+                <strong>תשובה משופרת:</strong> {report.rewriteSuggestion.betterAnswer}
+              </p>
             </div>
-          </div>
+          </section>
         )}
 
-        <div style={{ marginTop: '32px', display: 'flex', gap: '12px', justifyContent: 'flex-start' }}>
+        <div className="row">
           <button className="btn-primary" onClick={() => navigate('/session-builder')}>
             התחל אימון חדש
           </button>
@@ -137,4 +141,3 @@ export default function Report() {
     </div>
   )
 }
-

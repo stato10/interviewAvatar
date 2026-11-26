@@ -9,11 +9,12 @@ Follow the **Quick start** and **Environment variables** sections in [README.md]
 ## Before you open a PR
 
 1. Run **CI-equivalent checks locally**:
-   - `cd backend && pip install -r requirements.txt && python -c "from main import app"`
-   - `cd web && npm ci && npm run build`
-   - `cd agent && uv sync --frozen`
+   - `cd backend && pip install -r requirements-dev.txt && ruff check . && ruff format --check . && pytest -q`
+   - `cd agent && uv sync --frozen && uv run ruff check . && uv run pytest -q`
+   - `cd web && npm ci && npm test && npm run build`
 2. Keep changes focused — avoid unrelated refactors in the same PR.
-3. Document new environment variables in the README.
+3. Document new environment variables in the README and the relevant `.env.example`.
+4. If you change the data-channel protocol, update both `agent/agent.py` and `web/src/lib/protocol.ts`.
 
 ## Code style
 

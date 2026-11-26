@@ -1,149 +1,140 @@
-import { useState } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import axios from 'axios'
-import '../index.css'
+import { ApiError, createSession } from '../lib/api'
+import { saveSession } from '../lib/storage'
+import { SESSION_TYPE_LABELS, type Level, type SessionOptions, type SessionType } from '../lib/types'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
+function optionsFor(type: SessionType, form: SessionOptions): SessionOptions {
+  const trim = (v?: string) => v?.trim() || undefined
+  switch (type) {
+    case 'interview':
+      return { role: trim(form.role), level: form.level ?? 'mid' }
+    case 'presentation':
+      return { topic: trim(form.topic), duration: form.duration ?? 5 }
+    case 'simulation':
+      return { scenario: trim(form.scenario) }
+  }
+}
 
 export default function SessionBuilder() {
   const navigate = useNavigate()
-  const [sessionType, setSessionType] = useState('interview')
-  const [options, setOptions] = useState<any>({})
+  const [sessionType, setSessionType] = useState<SessionType>('interview')
+  const [form, setForm] = useState<SessionOptions>({ level: 'mid', duration: 5 })
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const update = (patch: Partial<SessionOptions>) => setForm((f) => ({ ...f, ...patch }))
+
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setLoading(true)
-
+    setError(null)
     try {
-      const response = await axios.post(`${API_URL}/api/sessions`, {
-        sessionConfig: {
-          sessionType,
-          options: {
-            ...options,
-            role: options.role || 'כללי',
-            level: options.level || 'mid',
-          },
-        },
-      })
-
-      // Store session data in localStorage for pre-join (including LiveKit URL)
-      localStorage.setItem('sessionData', JSON.stringify(response.data))
-      
+      const data = await createSession({ sessionType, options: optionsFor(sessionType, form) })
+      saveSession(data)
       navigate('/pre-join')
-    } catch (error) {
-      console.error('Error creating session:', error)
-      alert('שגיאה ביצירת סשן. נסה שוב.')
+    } catch (err) {
+      console.error('create session failed', err)
+      if (err instanceof ApiError && err.status === 503) setError('השרת לא מוגדר ל-LiveKit. בדוק את backend/.env.')
+      else if (err instanceof ApiError && err.status === 0) setError(err.message)
+      else setError('שגיאה ביצירת סשן. נסה שוב.')
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="container" style={{ paddingTop: '40px' }}>
-      <div className="card" style={{ maxWidth: '600px', margin: '0 auto' }}>
+    <div className="container page">
+      <div className="card">
         <h2>בניית סשן אימון</h2>
-        
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: '24px' }}>
-            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>
-              סוג אימון
-            </label>
-            <select 
-              value={sessionType} 
-              onChange={(e) => setSessionType(e.target.value)}
-              style={{ padding: '12px' }}
-            >
-              <option value="interview">ראיון עבודה</option>
-              <option value="presentation">פרזנטציה</option>
-              <option value="simulation">סימולציית לחץ</option>
+
+        <form onSubmit={handleSubmit} className="form">
+          <label>
+            <span>סוג אימון</span>
+            <select value={sessionType} onChange={(e) => setSessionType(e.target.value as SessionType)}>
+              {(Object.keys(SESSION_TYPE_LABELS) as SessionType[]).map((t) => (
+                <option key={t} value={t}>
+                  {SESSION_TYPE_LABELS[t]}
+                </option>
+              ))}
             </select>
-          </div>
+          </label>
 
           {sessionType === 'interview' && (
             <>
-              <div style={{ marginBottom: '24px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>
-                  תפקיד
-                </label>
+              <label>
+                <span>תפקיד</span>
                 <input
                   type="text"
-                  value={options.role || ''}
-                  onChange={(e) => setOptions({ ...options, role: e.target.value })}
+                  maxLength={120}
+                  value={form.role ?? ''}
+                  onChange={(e) => update({ role: e.target.value })}
                   placeholder="לדוגמה: מפתח Full Stack"
                 />
-              </div>
-              <div style={{ marginBottom: '24px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>
-                  רמה
-                </label>
-                <select
-                  value={options.level || 'mid'}
-                  onChange={(e) => setOptions({ ...options, level: e.target.value })}
-                >
+              </label>
+              <label>
+                <span>רמה</span>
+                <select value={form.level ?? 'mid'} onChange={(e) => update({ level: e.target.value as Level })}>
                   <option value="junior">Junior</option>
                   <option value="mid">Mid</option>
                   <option value="senior">Senior</option>
                 </select>
-              </div>
+              </label>
             </>
           )}
 
           {sessionType === 'presentation' && (
             <>
-              <div style={{ marginBottom: '24px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>
-                  נושא
-                </label>
+              <label>
+                <span>נושא</span>
                 <input
                   type="text"
-                  value={options.topic || ''}
-                  onChange={(e) => setOptions({ ...options, topic: e.target.value })}
+                  maxLength={200}
+                  value={form.topic ?? ''}
+                  onChange={(e) => update({ topic: e.target.value })}
                   placeholder="נושא הפרזנטציה"
                 />
-              </div>
-              <div style={{ marginBottom: '24px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>
-                  משך זמן (דקות)
-                </label>
+              </label>
+              <label>
+                <span>משך זמן (דקות)</span>
                 <input
                   type="number"
-                  value={options.duration || 5}
-                  onChange={(e) => setOptions({ ...options, duration: parseInt(e.target.value) })}
-                  min="1"
-                  max="30"
+                  min={1}
+                  max={60}
+                  value={form.duration ?? 5}
+                  onChange={(e) => {
+                    const n = Number.parseInt(e.target.value, 10)
+                    update({ duration: Number.isFinite(n) ? Math.min(60, Math.max(1, n)) : undefined })
+                  }}
                 />
-              </div>
+              </label>
             </>
           )}
 
           {sessionType === 'simulation' && (
-            <div style={{ marginBottom: '24px' }}>
-              <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>
-                תרחיש
-              </label>
-              <input
-                type="text"
-                value={options.scenario || ''}
-                onChange={(e) => setOptions({ ...options, scenario: e.target.value })}
-                placeholder="תיאור התרחיש"
+            <label>
+              <span>תרחיש</span>
+              <textarea
+                rows={3}
+                maxLength={500}
+                value={form.scenario ?? ''}
+                onChange={(e) => update({ scenario: e.target.value })}
+                placeholder="לדוגמה: משא ומתן על שכר מול מנכ״ל ספקן"
               />
+            </label>
+          )}
+
+          {error && (
+            <div className="alert" role="alert">
+              {error}
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-start' }}>
-            <button 
-              type="submit" 
-              className="btn-primary"
-              disabled={loading}
-            >
-              {loading ? 'יוצר...' : 'המשך'}
+          <div className="row">
+            <button type="submit" className="btn-primary" disabled={loading}>
+              {loading ? 'יוצר…' : 'המשך'}
             </button>
-            <button 
-              type="button" 
-              className="btn-secondary"
-              onClick={() => navigate('/')}
-            >
+            <button type="button" className="btn-secondary" onClick={() => navigate('/')}>
               ביטול
             </button>
           </div>
@@ -152,4 +143,3 @@ export default function SessionBuilder() {
     </div>
   )
 }
-

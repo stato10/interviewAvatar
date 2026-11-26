@@ -1,50 +1,49 @@
 """
-FastAPI backend for Interview Avatar Coach
+FastAPI backend for Interview Avatar Coach.
 """
-from fastapi import FastAPI, HTTPException, Depends
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
-from pydantic import BaseModel
-from typing import Optional, Dict, Any
+
+from __future__ import annotations
+
+import logging
+import secrets
 import uuid
-import os
-from datetime import datetime
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime
+from typing import Annotated, Any, Literal
 
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from config import Settings, get_settings
 from db import get_db, init_db
-from models import Session as DBSession, Report
-from livekit_service import LiveKitService
+from livekit_service import LiveKitNotConfigured, LiveKitService
+from models import Report
+from models import Session as DBSession
 
-app = FastAPI(title="Interview Avatar Coach API", version="1.0.0")
-
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # In production, specify your frontend URL
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Initialize database on startup
-@app.on_event("startup")
-async def startup_event():
-    init_db()
-
-# Initialize LiveKit service (lazy - will be created when needed)
-livekit_service = None
-
-def get_livekit_service():
-    """Get or create LiveKit service"""
-    global livekit_service
-    if livekit_service is None:
-        livekit_service = LiveKitService()
-    return livekit_service
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger("backend")
 
 
-# Pydantic models for request/response
+# --------------------------------------------------------------------------- schemas
+
+SessionType = Literal["interview", "presentation", "simulation"]
+
+
+class SessionOptions(BaseModel):
+    role: str | None = Field(default=None, max_length=120)
+    level: Literal["junior", "mid", "senior"] | None = None
+    topic: str | None = Field(default=None, max_length=200)
+    duration: int | None = Field(default=None, ge=1, le=60)
+    scenario: str | None = Field(default=None, max_length=500)
+
+
 class SessionConfig(BaseModel):
-    sessionType: str  # "interview", "presentation", "simulation"
-    options: Dict[str, Any]  # Additional session options
+    sessionType: SessionType
+    options: SessionOptions = Field(default_factory=SessionOptions)
 
 
 class CreateSessionRequest(BaseModel):
@@ -55,128 +54,174 @@ class CreateSessionResponse(BaseModel):
     roomName: str
     token: str
     sessionId: str
-    livekitUrl: str  # Add LiveKit URL to response
+    livekitUrl: str
+    sessionConfig: SessionConfig
+
+
+class Improvement(BaseModel):
+    title: str = Field(max_length=300)
+    howToPractice: str = Field(max_length=2000)
+
+
+class RewriteSuggestion(BaseModel):
+    question: str = Field(max_length=2000)
+    betterAnswer: str = Field(max_length=4000)
 
 
 class ReportData(BaseModel):
     sessionId: str
-    sessionType: str
-    summary: list[str]
-    strengths: list[str]
-    improvements: list[Dict[str, str]]  # [{"title": "...", "howToPractice": "..."}]
-    rewriteSuggestion: Optional[Dict[str, str]] = None  # {"question": "...", "betterAnswer": "..."}
+    sessionType: SessionType
+    summary: list[str] = Field(max_length=20)
+    strengths: list[str] = Field(max_length=20)
+    improvements: list[Improvement] = Field(max_length=20)
+    rewriteSuggestion: RewriteSuggestion | None = None
 
 
-# API Endpoints
+# --------------------------------------------------------------------------- app
 
-@app.post("/api/sessions", response_model=CreateSessionResponse)
-async def create_session(
-    request: CreateSessionRequest,
-    db: Session = Depends(get_db)
-):
-    """
-    Create a new session (or reuse existing room)
-    Creates LiveKit room and sets metadata with sessionConfig
-    """
-    session_id = str(uuid.uuid4())
-    room_name = f"session-{session_id[:8]}"
-    
-    # Get LiveKit service
-    lk_service = get_livekit_service()
-    
-    # Create or get room
-    room = await lk_service.get_room(room_name)
-    if not room:
-        # Create new room with metadata
-        metadata = {
-            "sessionId": session_id,
-            "sessionConfig": request.sessionConfig.dict(),
-        }
-        room = await lk_service.create_room(room_name, metadata)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    settings = get_settings()
+    init_db()
+    app.state.livekit = None
+    if settings.livekit_configured:
+        app.state.livekit = LiveKitService(settings)
     else:
-        # Update existing room metadata
-        metadata = {
-            "sessionId": session_id,
-            "sessionConfig": request.sessionConfig.dict(),
-        }
-        room = await lk_service.update_room_metadata(room_name, metadata)
-    
-    # Generate token for user
-    token = lk_service.generate_token(
-        room_name=room_name,
-        participant_identity=f"user-{session_id[:8]}",
-        participant_name="User",
-        is_agent=False,
+        logger.warning("LiveKit is not configured — POST /api/sessions will return 503")
+    if not settings.agent_api_key:
+        logger.warning("AGENT_API_KEY is not set — report endpoint is unauthenticated (dev only)")
+    yield
+    if app.state.livekit is not None:
+        await app.state.livekit.aclose()
+
+
+app = FastAPI(title="Interview Avatar Coach API", version="1.1.0", lifespan=lifespan)
+
+_settings = get_settings()
+_origins = _settings.cors_origin_list
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_origins,
+    # Credentials are never needed (no cookies) and are invalid together with "*".
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Agent-Key"],
+)
+
+DbDep = Annotated[Session, Depends(get_db)]
+SettingsDep = Annotated[Settings, Depends(get_settings)]
+
+
+def get_livekit(request: Request) -> LiveKitService:
+    service: LiveKitService | None = getattr(request.app.state, "livekit", None)
+    if service is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "LiveKit is not configured on the server")
+    return service
+
+
+def require_agent(settings: SettingsDep, x_agent_key: Annotated[str | None, Header()] = None) -> None:
+    expected = settings.agent_api_key
+    if expected and not (x_agent_key and secrets.compare_digest(x_agent_key, expected)):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid agent key")
+
+
+def _get_session_or_404(db: Session, session_id: str) -> DBSession:
+    row = db.get(DBSession, session_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
+    return row
+
+
+# --------------------------------------------------------------------------- routes
+
+
+@app.post(
+    "/api/sessions",
+    response_model=CreateSessionResponse,
+    response_model_exclude_none=True,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_session(
+    body: CreateSessionRequest,
+    db: DbDep,
+    livekit: Annotated[LiveKitService, Depends(get_livekit)],
+) -> CreateSessionResponse:
+    """Create a LiveKit room (metadata = session config) and a participant token."""
+    session_id = str(uuid.uuid4())
+    room_name = f"session-{session_id}"
+    config: dict[str, Any] = body.sessionConfig.model_dump(exclude_none=True)
+
+    try:
+        await livekit.create_room(room_name, {"sessionId": session_id, "sessionConfig": config})
+    except LiveKitNotConfigured as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+    except Exception as exc:
+        logger.exception("failed to create LiveKit room")
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Could not create LiveKit room") from exc
+
+    db.add(
+        DBSession(
+            id=session_id,
+            room_name=room_name,
+            session_type=body.sessionConfig.sessionType,
+            session_config=config,
+        )
     )
-    
-    # Save session to database
-    db_session = DBSession(
-        id=session_id,
-        room_name=room_name,
-        session_type=request.sessionConfig.sessionType,
-        session_config=request.sessionConfig.dict(),
-    )
-    db.add(db_session)
     db.commit()
-    db.refresh(db_session)
-    
+
     return CreateSessionResponse(
         roomName=room_name,
-        token=token,
+        token=livekit.generate_token(room_name, identity=f"user-{session_id[:8]}"),
         sessionId=session_id,
-        livekitUrl=os.getenv("LIVEKIT_URL", "wss://your-livekit-server.com"),
+        livekitUrl=livekit.url,
+        sessionConfig=body.sessionConfig,
     )
 
 
 @app.get("/api/sessions/{session_id}")
-async def get_session(session_id: str, db: Session = Depends(get_db)):
-    """Get session configuration"""
-    db_session = db.query(DBSession).filter(DBSession.id == session_id).first()
-    if not db_session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    return db_session.to_dict()
+def get_session(session_id: str, db: DbDep) -> dict[str, Any]:
+    return _get_session_or_404(db, session_id).to_dict()
 
 
-@app.post("/api/sessions/{session_id}/report")
-async def save_report(
-    session_id: str,
-    report_data: ReportData,
-    db: Session = Depends(get_db)
-):
-    """Save session report (called by agent)"""
-    # Verify session exists
-    db_session = db.query(DBSession).filter(DBSession.id == session_id).first()
-    if not db_session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    
-    # Save report
-    report = Report(
-        session_id=session_id,
-        report_data=report_data.dict(),
-    )
-    db.add(report)
+@app.post(
+    "/api/sessions/{session_id}/report",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_agent)],
+)
+def save_report(session_id: str, report: ReportData, db: DbDep) -> dict[str, Any]:
+    """Store a report (called by the agent)."""
+    if report.sessionId != session_id:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "sessionId in body does not match URL")
+    _get_session_or_404(db, session_id)
+    row = Report(session_id=session_id, report_data=report.model_dump(exclude_none=True))
+    db.add(row)
     db.commit()
-    db.refresh(report)
-    
-    return {"status": "success", "reportId": report.id}
+    return {"status": "success", "reportId": row.id}
 
 
 @app.get("/api/sessions/{session_id}/report")
-async def get_report(session_id: str, db: Session = Depends(get_db)):
-    """Get session report for UI"""
-    report = db.query(Report).filter(Report.session_id == session_id).order_by(Report.created_at.desc()).first()
-    if not report:
-        raise HTTPException(status_code=404, detail="Report not found")
-    return report.to_dict()
+def get_report(session_id: str, db: DbDep) -> dict[str, Any]:
+    row = db.scalars(
+        select(Report).where(Report.session_id == session_id).order_by(Report.created_at.desc(), Report.id.desc())
+    ).first()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Report not found")
+    return row.to_dict()
 
 
 @app.get("/health")
-async def health():
-    """Health check endpoint"""
-    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
+def health(request: Request) -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "livekit": getattr(request.app.state, "livekit", None) is not None,
+        "timestamp": datetime.now(UTC).isoformat(),
+    }
 
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import os
 
+    import uvicorn
+
+    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")), reload=False)

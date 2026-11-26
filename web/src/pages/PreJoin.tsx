@@ -1,104 +1,107 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Room, RoomOptions, VideoCaptureOptions, AudioCaptureOptions } from 'livekit-client'
-import '../index.css'
+import { loadDevicePrefs, loadSession, saveDevicePrefs } from '../lib/storage'
+import { SESSION_TYPE_LABELS } from '../lib/types'
 
 export default function PreJoin() {
   const navigate = useNavigate()
-  const [sessionData, setSessionData] = useState<any>(null)
-  const [videoEnabled, setVideoEnabled] = useState(true)
-  const [audioEnabled, setAudioEnabled] = useState(true)
-  const [localVideoTrack, setLocalVideoTrack] = useState<MediaStreamTrack | null>(null)
-  const [localAudioTrack, setLocalAudioTrack] = useState<MediaStreamTrack | null>(null)
+  const [session] = useState(loadSession)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const [prefs, setPrefs] = useState(loadDevicePrefs)
+  const [mediaError, setMediaError] = useState<string | null>(null)
+  const [level, setLevel] = useState(0)
 
   useEffect(() => {
-    const data = localStorage.getItem('sessionData')
-    if (!data) {
-      navigate('/session-builder')
-      return
-    }
-    setSessionData(JSON.parse(data))
+    if (!session) navigate('/session-builder', { replace: true })
+  }, [session, navigate])
 
-    // Request camera and microphone access
-    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+  // Acquire preview media once; always release it on unmount (LiveRoom opens its own tracks).
+  useEffect(() => {
+    let cancelled = false
+    let raf = 0
+    let audioCtx: AudioContext | null = null
+
+    navigator.mediaDevices
+      ?.getUserMedia({ video: true, audio: true })
       .then((stream) => {
-        setLocalVideoTrack(stream.getVideoTracks()[0])
-        setLocalAudioTrack(stream.getAudioTracks()[0])
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop())
+          return
+        }
+        streamRef.current = stream
+        if (videoRef.current) videoRef.current.srcObject = stream
+
+        // Simple mic level meter so the user can verify the microphone works.
+        audioCtx = new AudioContext()
+        const analyser = audioCtx.createAnalyser()
+        analyser.fftSize = 256
+        audioCtx.createMediaStreamSource(stream).connect(analyser)
+        const data = new Uint8Array(analyser.frequencyBinCount)
+        const tick = () => {
+          analyser.getByteFrequencyData(data)
+          setLevel(Math.min(1, data.reduce((a, b) => a + b, 0) / data.length / 80))
+          raf = requestAnimationFrame(tick)
+        }
+        tick()
       })
-      .catch((error) => {
-        console.error('Error accessing media:', error)
-        alert('שגיאה בגישה למצלמה/מיקרופון')
+      .catch((err: unknown) => {
+        console.error('getUserMedia failed', err)
+        if (!cancelled) setMediaError('אין גישה למצלמה/מיקרופון. אשר הרשאות בדפדפן ונסה שוב.')
       })
 
     return () => {
-      // Cleanup
-      if (localVideoTrack) localVideoTrack.stop()
-      if (localAudioTrack) localAudioTrack.stop()
+      cancelled = true
+      cancelAnimationFrame(raf)
+      void audioCtx?.close()
+      streamRef.current?.getTracks().forEach((t) => t.stop())
+      streamRef.current = null
     }
   }, [])
 
-  const handleJoin = () => {
-    if (!sessionData) return
-    navigate(`/room/${sessionData.roomName}`)
-  }
+  useEffect(() => {
+    streamRef.current?.getVideoTracks().forEach((t) => (t.enabled = prefs.camera))
+    streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = prefs.microphone))
+    saveDevicePrefs(prefs)
+  }, [prefs])
 
-  const toggleVideo = () => {
-    setVideoEnabled(!videoEnabled)
-    if (localVideoTrack) {
-      localVideoTrack.enabled = !videoEnabled
-    }
-  }
-
-  const toggleAudio = () => {
-    setAudioEnabled(!audioEnabled)
-    if (localAudioTrack) {
-      localAudioTrack.enabled = !audioEnabled
-    }
-  }
-
-  if (!sessionData) return null
+  if (!session) return null
 
   return (
-    <div className="container" style={{ paddingTop: '40px' }}>
-      <div className="card" style={{ maxWidth: '800px', margin: '0 auto' }}>
+    <div className="container page">
+      <div className="card card-wide">
         <h2>בדיקת מצלמה ומיקרופון</h2>
-        
-        <div style={{ marginBottom: '24px' }}>
-          <video
-            ref={(video) => {
-              if (video && localVideoTrack) {
-                video.srcObject = new MediaStream([localVideoTrack])
-                video.play()
-              }
-            }}
-            autoPlay
-            muted
-            style={{
-              width: '100%',
-              maxWidth: '640px',
-              borderRadius: '12px',
-              backgroundColor: '#000',
-            }}
-          />
+        <p className="muted">
+          {SESSION_TYPE_LABELS[session.sessionConfig?.sessionType ?? 'interview']} · ודא שאתה נראה ונשמע היטב לפני
+          הכניסה.
+        </p>
+
+        {mediaError && (
+          <div className="alert" role="alert">
+            {mediaError}
+          </div>
+        )}
+
+        <div className="preview">
+          <video ref={videoRef} autoPlay playsInline muted hidden={!prefs.camera} />
+          {!prefs.camera && <div className="tile-placeholder">המצלמה כבויה</div>}
         </div>
 
-        <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
-          <button
-            className={videoEnabled ? 'btn-primary' : 'btn-secondary'}
-            onClick={toggleVideo}
-          >
-            {videoEnabled ? 'כבה מצלמה' : 'הפעל מצלמה'}
+        <div className="meter" aria-label="עוצמת מיקרופון">
+          <div style={{ width: `${prefs.microphone ? level * 100 : 0}%` }} />
+        </div>
+
+        <div className="row">
+          <button className="btn-ghost" onClick={() => setPrefs((p) => ({ ...p, camera: !p.camera }))}>
+            {prefs.camera ? 'כבה מצלמה' : 'הפעל מצלמה'}
           </button>
-          <button
-            className={audioEnabled ? 'btn-primary' : 'btn-secondary'}
-            onClick={toggleAudio}
-          >
-            {audioEnabled ? 'כבה מיקרופון' : 'הפעל מיקרופון'}
+          <button className="btn-ghost" onClick={() => setPrefs((p) => ({ ...p, microphone: !p.microphone }))}>
+            {prefs.microphone ? 'השתק מיקרופון' : 'הפעל מיקרופון'}
           </button>
         </div>
 
-        <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-start' }}>
-          <button className="btn-primary" onClick={handleJoin}>
+        <div className="row">
+          <button className="btn-primary" onClick={() => navigate(`/room/${session.roomName}`)}>
             הצטרף לחדר
           </button>
           <button className="btn-secondary" onClick={() => navigate('/session-builder')}>
@@ -109,4 +112,3 @@ export default function PreJoin() {
     </div>
   )
 }
-
