@@ -1,17 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  AlertCircle,
-  Camera,
-  CameraOff,
-  CheckCheck,
-  LogOut,
-  MessageSquareText,
-  Mic,
-  MicOff,
-  SkipForward,
-  Volume2,
-} from 'lucide-react'
+import { AlertCircle, Camera, CameraOff, Mic, MicOff, SkipForward, Volume2 } from 'lucide-react'
 import { Brand } from '../components/Logo'
+import { VoiceWave } from '../components/VoiceWave'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   ConnectionState,
@@ -40,11 +30,16 @@ const REPORT_WAIT_MS = 60_000
 const MAX_CAPTIONS = 40
 
 const AGENT_STATE_LABELS: Record<AgentState, string> = {
-  initializing: 'המאמן מתחבר…',
-  listening: 'מקשיב',
-  thinking: 'חושב…',
-  speaking: 'מדבר',
-  idle: 'ממתין',
+  initializing: 'המאמן מתכונן',
+  listening: 'המאמן מקשיב',
+  thinking: 'המאמן חושב',
+  speaking: 'המאמן מדבר',
+  idle: 'המאמן ממתין',
+}
+
+const AGENT_STATE_HINTS: Partial<Record<AgentState, string>> = {
+  listening: 'דברו כרגיל. כשתסיימו לענות, המאמן ימשיך.',
+  speaking: 'אפשר לקטוע אותו בכל רגע, פשוט מתחילים לדבר.',
 }
 
 function formatElapsed(seconds: number): string {
@@ -65,7 +60,6 @@ export default function LiveRoom() {
   const captionsEndRef = useRef<HTMLDivElement>(null)
   const finishTimerRef = useRef<number>()
   const agentRef = useRef<Participant | null>(null)
-  const orbRef = useRef<HTMLDivElement>(null)
 
   const [status, setStatus] = useState<Status>('connecting')
   const [error, setError] = useState<string | null>(null)
@@ -90,7 +84,7 @@ export default function LiveRoom() {
     }
     if (!session.livekitUrl) {
       setStatus('error')
-      setError('לא הוגדרה כתובת שרת LiveKit בשרת (LIVEKIT_URL).')
+      setError('השרת לא מחובר ל-LiveKit, ולכן אי אפשר להתחבר לשיחה.')
       return
     }
 
@@ -145,7 +139,7 @@ export default function LiveRoom() {
       .on(RoomEvent.Disconnected, (reason?: DisconnectReason) => {
         if (cancelled || reason === DisconnectReason.CLIENT_INITIATED) return
         setStatus('error')
-        setError('החיבור לחדר נותק.')
+        setError('החיבור לשיחה נותק. המשוב עדיין יישמר עד הרגע הזה.')
       })
       .on(RoomEvent.DataReceived, (payload, _participant, _kind, topic) => {
         if (topic !== DATA_TOPIC) return
@@ -187,10 +181,10 @@ export default function LiveRoom() {
         if (cancelled) return
         console.error('LiveKit connection failed', err)
         if (room.state === ConnectionState.Connected) {
-          setError('לא ניתן לגשת למצלמה או למיקרופון. בדוק את הרשאות הדפדפן.')
+          setError('הדפדפן חסם את המיקרופון או המצלמה. אפשרו גישה דרך סמל המנעול בשורת הכתובת.')
         } else {
           setStatus('error')
-          setError('לא ניתן להתחבר לשרת LiveKit. בדוק את החיבור לאינטרנט ואת LIVEKIT_URL, או צור סשן חדש.')
+          setError('אין חיבור לשרת השיחה (LiveKit). בדקו את החיבור לאינטרנט, או פתחו אימון חדש.')
         }
       }
     })()
@@ -216,19 +210,7 @@ export default function LiveRoom() {
     captionsEndRef.current?.scrollIntoView({ block: 'nearest' })
   }, [captions])
 
-  // Drive the orb from the coach's live audio level without re-rendering React.
-  useEffect(() => {
-    let raf = 0
-    let smoothed = 0
-    const tick = () => {
-      const target = Math.min(1, (agentRef.current?.audioLevel ?? 0) * 2.5)
-      smoothed += (target - smoothed) * 0.25
-      orbRef.current?.style.setProperty('--level', smoothed.toFixed(3))
-      raf = requestAnimationFrame(tick)
-    }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [])
+  const coachLevel = useCallback(() => Math.min(1, (agentRef.current?.audioLevel ?? 0) * 2.5), [])
 
   // ---------------------------------------------------------------- actions
   const send = useCallback(async (action: CoachAction) => {
@@ -273,114 +255,103 @@ export default function LiveRoom() {
   if (!session) return null
 
   const busy = status !== 'connected'
-  const coachLabel = !agentPresent ? 'ממתין שהמאמן יצטרף…' : AGENT_STATE_LABELS[agentState] ?? agentState
+  const speaking = agentPresent && agentState === 'speaking'
+  const coachLabel = !agentPresent ? 'מחכים שהמאמן יצטרף' : AGENT_STATE_LABELS[agentState] ?? ''
+  const coachHint = !agentPresent
+    ? 'זה לוקח בדרך כלל כמה שניות.'
+    : AGENT_STATE_HINTS[agentState] ?? ''
   const statusLabel = {
-    connecting: 'מתחבר…',
+    connecting: 'מתחברים',
     connected: 'בשידור',
-    reconnecting: 'מתחבר מחדש…',
-    finishing: 'מכין דוח…',
-    error: 'מנותק',
+    reconnecting: 'מתחברים מחדש',
+    finishing: 'האימון הסתיים',
+    error: 'החיבור נותק',
   }[status]
 
   return (
     <div className="room">
       <div ref={audioContainerRef} hidden />
 
-      <header className="room-header">
-        <div className="room-title">
-          <Brand subtitle={false} />
-        </div>
-        <div className="room-title">
-          <strong>{SESSION_TYPE_LABELS[session.sessionConfig?.sessionType ?? 'interview']}</strong>
-          <span className="room-chip" aria-label="משך הסשן">
-            {formatElapsed(elapsed)}
-          </span>
-          <span className={`room-chip status-${status}`} role="status">
-            <span className="dot" />
+      <header className="room-bar">
+        <Brand />
+        <div className="room-meta">
+          <span>{SESSION_TYPE_LABELS[session.sessionConfig?.sessionType ?? 'interview']}</span>
+          <span aria-label="זמן שעבר">{formatElapsed(elapsed)}</span>
+          <span
+            className={status === 'connected' ? 'live is-on' : status === 'error' ? 'live' : 'live is-warn'}
+            role="status"
+          >
             {statusLabel}
           </span>
         </div>
       </header>
 
       {error && (
-        <div className="alert" role="alert">
+        <div className="notice room-notice" role="alert">
           <AlertCircle />
-          <span className="alert-body">{error}</span>
+          <span className="notice-body">{error}</span>
           {status === 'error' && (
-            <button className="btn btn-sm" onClick={() => navigate('/session-builder')}>
-              סשן חדש
+            <button className="ctl" onClick={() => navigate('/session-builder')}>
+              אימון חדש
             </button>
           )}
         </div>
       )}
 
       {!canPlayAudio && (
-        <div className="alert alert-info">
+        <div className="notice room-notice is-info">
           <Volume2 />
-          <span className="alert-body">הדפדפן חסם השמעת קול. לחצו כדי לשמוע את המאמן.</span>
-          <button className="btn btn-sm btn-dark" onClick={() => roomRef.current?.startAudio()}>
-            הפעל קול
+          <span className="notice-body">הדפדפן חסם את הקול של המאמן.</span>
+          <button className="ctl ctl-primary" onClick={() => roomRef.current?.startAudio()}>
+            הפעלת קול
           </button>
         </div>
       )}
 
       <main className="room-stage">
-        <section className="stage-main">
-          <div className={`coach-tile state-${agentPresent ? agentState : 'waiting'}`}>
-            <video ref={agentVideoRef} autoPlay playsInline hidden={!hasAgentVideo} />
-            {!hasAgentVideo && (
-              <div className="coach-presence">
-                <div className="orb" ref={orbRef} aria-hidden>
-                  <div className="orb-core" />
-                </div>
-                <div className="coach-state" aria-live="polite">
+        <section className="coach" aria-label="המאמן">
+          <video ref={agentVideoRef} autoPlay playsInline hidden={!hasAgentVideo} />
+          {!hasAgentVideo && (
+            <div className="coach-voice">
+              <VoiceWave getLevel={coachLevel} bars={28} className={speaking ? 'wave-lg' : 'wave-lg is-idle'} />
+              <div>
+                <p className="coach-state" aria-live="polite">
                   {coachLabel}
-                </div>
+                </p>
+                {coachHint && <p className="coach-hint">{coachHint}</p>}
               </div>
-            )}
-            {hasAgentVideo && <div className="tile-label">מאמן · {coachLabel}</div>}
+            </div>
+          )}
 
-            {status === 'finishing' && (
-              <div className="finishing">
-                <div>
-                  <div className="loader" />
-                  <h3>מנתחים את השיחה…</h3>
-                  <p className="muted">הדוח יוכן בעוד כמה שניות.</p>
-                </div>
-              </div>
-            )}
-          </div>
-          <div className="self-tile">
+          <div className="self" aria-label="המצלמה שלך">
             <video ref={localVideoRef} autoPlay playsInline muted hidden={!camOn} />
             {!camOn && (
-              <div className="tile-empty">
+              <div className="self-off">
                 <CameraOff />
               </div>
             )}
-            <div className="tile-label">
-              {micOn ? <Mic /> : <MicOff />}
-              את/ה
-            </div>
           </div>
+
+          {status === 'finishing' && (
+            <div className="finishing" role="status">
+              <div>
+                <VoiceWave getLevel={coachLevel} bars={20} />
+                <h2>האימון הסתיים</h2>
+                <p>המאמן כותב את המשוב שלך. זה לוקח כמה שניות.</p>
+              </div>
+            </div>
+          )}
         </section>
 
-        <aside className="transcript" aria-label="תמליל חי">
-          <div className="transcript-head">
-            <span>
-              <MessageSquareText /> תמליל חי
-            </span>
-            <span className="muted">{captions.length > 0 ? `${captions.length} הודעות` : ''}</span>
-          </div>
+        <aside className="transcript" aria-label="תמליל">
+          <h2 className="transcript-title">תמליל</h2>
           <div className="transcript-body" aria-live="polite">
             {captions.length === 0 ? (
-              <div className="transcript-empty">
-                <MessageSquareText />
-                השיחה תופיע כאן בזמן אמת, ברגע שתתחילו לדבר.
-              </div>
+              <p className="transcript-empty">כל מה שנאמר בשיחה יופיע כאן.</p>
             ) : (
               captions.map((c) => (
-                <p key={c.id} className={`bubble ${c.fromAgent ? 'bubble-agent' : 'bubble-user'}`}>
-                  <b>{c.fromAgent ? 'מאמן' : 'את/ה'}</b>
+                <p key={c.id} className={c.fromAgent ? 'line line-coach' : 'line'}>
+                  <span className="line-who">{c.fromAgent ? 'מאמן' : 'את/ה'}</span>
                   {c.text}
                 </p>
               ))
@@ -390,45 +361,47 @@ export default function LiveRoom() {
         </aside>
       </main>
 
-      <footer className="room-controls">
-        <div className="control-group">
+      <footer className="controls">
+        <div className="controls-group">
           <button
-            className={`ctl ctl-round${micOn ? '' : ' is-off'}`}
+            className="ctl ctl-icon"
             onClick={toggleMic}
             disabled={busy}
             aria-pressed={!micOn}
-            aria-label={micOn ? 'השתק מיקרופון' : 'הפעל מיקרופון'}
-            title={micOn ? 'השתק מיקרופון' : 'הפעל מיקרופון'}
+            aria-label="השתקת מיקרופון"
+            title={micOn ? 'השתקת מיקרופון' : 'ביטול השתקה'}
           >
             {micOn ? <Mic /> : <MicOff />}
           </button>
           <button
-            className={`ctl ctl-round${camOn ? '' : ' is-off'}`}
+            className="ctl ctl-icon"
             onClick={toggleCam}
             disabled={busy}
             aria-pressed={!camOn}
-            aria-label={camOn ? 'כבה מצלמה' : 'הפעל מצלמה'}
-            title={camOn ? 'כבה מצלמה' : 'הפעל מצלמה'}
+            aria-label="כיבוי מצלמה"
+            title={camOn ? 'כיבוי מצלמה' : 'הפעלת מצלמה'}
           >
             {camOn ? <Camera /> : <CameraOff />}
           </button>
+          <button
+            className="ctl"
+            onClick={() => void send('NEXT')}
+            disabled={busy || !agentPresent}
+            title="משוב קצר על התשובה האחרונה, ושאלה חדשה"
+          >
+            <SkipForward />
+            <span className="ctl-label">לשאלה הבאה</span>
+          </button>
         </div>
 
-        <div className="control-group">
-          <button className="ctl" onClick={() => void send('NEXT')} disabled={busy || !agentPresent} title="משוב קצר ומעבר לשאלה הבאה">
-            <SkipForward />
-            <span className="ctl-label">שאלה הבאה</span>
+        <div className="controls-group">
+          <button className="ctl ctl-quiet" onClick={handleLeave}>
+            יציאה
           </button>
           <button className="ctl ctl-primary" onClick={handleDone} disabled={busy || !agentPresent}>
-            <CheckCheck />
-            <span className="ctl-label">סיום וקבלת דוח</span>
+            סיום וקבלת משוב
           </button>
         </div>
-
-        <button className="ctl ctl-danger" onClick={handleLeave} aria-label="יציאה מהחדר" title="יציאה">
-          <LogOut />
-          <span className="ctl-label">יציאה</span>
-        </button>
       </footer>
     </div>
   )

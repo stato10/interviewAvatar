@@ -1,29 +1,22 @@
 import { Link } from 'react-router-dom'
 
+/** Mark: three waveform bars — the same signature used across the product. */
 export function LogoMark({ className = 'brand-mark' }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 64 64" aria-hidden>
-      <rect width="64" height="64" rx="16" fill="#0b1220" />
-      <circle cx="32" cy="32" r="15" fill="#1a9a87" />
-      <path
-        d="M14 32a18 18 0 0 1 18-18M50 32a18 18 0 0 1-18 18"
-        stroke="#c9852b"
-        strokeWidth="4"
-        strokeLinecap="round"
-        fill="none"
-      />
+    <svg className={className} viewBox="0 0 32 32" aria-hidden>
+      <rect width="32" height="32" rx="8" fill="currentColor" />
+      <rect x="8" y="12" width="3.4" height="8" rx="1.7" fill="#fff" />
+      <rect x="14.3" y="7" width="3.4" height="18" rx="1.7" fill="#E5484D" />
+      <rect x="20.6" y="10" width="3.4" height="12" rx="1.7" fill="#fff" />
     </svg>
   )
 }
 
-export function Brand({ subtitle = true }: { subtitle?: boolean }) {
+export function Brand() {
   return (
-    <Link to="/" className="brand" aria-label="Interview Avatar Coach — דף הבית">
+    <Link to="/" className="brand" aria-label="Avatar Coach, לדף הבית">
       <LogoMark />
-      <span className="brand-text">
-        Avatar Coach
-        {subtitle && <small>אימון ראיונות בזמן אמת</small>}
-      </span>
+      <span className="brand-text">Avatar Coach</span>
     </Link>
   )
 }

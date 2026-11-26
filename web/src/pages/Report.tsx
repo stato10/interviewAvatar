@@ -1,37 +1,24 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import {
-  ArrowLeft,
-  CheckCircle2,
-  FileQuestion,
-  FileText,
-  Lightbulb,
-  Printer,
-  RefreshCw,
-  Sparkles,
-  ThumbsUp,
-  WifiOff,
-} from 'lucide-react'
+import { Printer } from 'lucide-react'
 import { AppShell } from '../components/AppShell'
+import { Feedback } from '../components/Feedback'
 import { Stepper } from '../components/Stepper'
+import { VoiceWave } from '../components/VoiceWave'
 import { ApiError, getReport } from '../lib/api'
 import { SESSION_TYPE_LABELS, type ReportResponse } from '../lib/types'
 
 const POLL_INTERVAL_MS = 2500
 const POLL_TIMEOUT_MS = 90_000
 
-type State =
-  | { kind: 'loading' }
-  | { kind: 'ready'; data: ReportResponse }
-  | { kind: 'missing' }
-  | { kind: 'error' }
+type State = { kind: 'loading' } | { kind: 'ready'; data: ReportResponse } | { kind: 'missing' } | { kind: 'error' }
 
 export default function Report() {
   const { sessionId } = useParams()
   const [state, setState] = useState<State>({ kind: 'loading' })
   const [attempt, setAttempt] = useState(0)
 
-  // The agent writes the report asynchronously, so poll until it appears.
+  // The agent writes feedback asynchronously, so poll until it appears.
   useEffect(() => {
     if (!sessionId) return
     const controller = new AbortController()
@@ -65,147 +52,70 @@ export default function Report() {
   return (
     <AppShell nav={<Stepper current={3} />}>
       <div className="container page">
-        {state.kind === 'loading' && <Loading />}
+        {state.kind === 'loading' && <Writing />}
+
         {(state.kind === 'missing' || state.kind === 'error') && (
-          <div className="card state-screen fade-in">
-            <span className="state-icon">{state.kind === 'missing' ? <FileQuestion /> : <WifiOff />}</span>
-            <h2 className="display">{state.kind === 'missing' ? 'הדוח עדיין לא מוכן' : 'לא הצלחנו לטעון את הדוח'}</h2>
-            <p className="muted">
+          <div className="status">
+            <h1>{state.kind === 'missing' ? 'עדיין אין משוב לאימון הזה' : 'אין חיבור לשרת'}</h1>
+            <p>
               {state.kind === 'missing'
-                ? 'ייתכן שהסשן היה קצר מדי, או שהמאמן לא הספיק להצטרף. נסו שוב בעוד רגע.'
-                : 'נראה שאין חיבור לשרת כרגע.'}
+                ? 'המשוב נכתב רק אחרי שהמאמן הצטרף ושמע אותך מדבר. אם האימון היה קצר מאוד, נסו אימון נוסף.'
+                : 'המשוב שמור בשרת. בדקו את החיבור ונסו שוב.'}
             </p>
-            <div className="row">
+            <div className="form-actions">
               <button className="btn btn-primary" onClick={() => setAttempt((a) => a + 1)}>
-                <RefreshCw /> נסו שוב
+                לבדוק שוב
               </button>
               <Link className="btn" to="/session-builder">
-                סשן חדש
+                אימון חדש
               </Link>
             </div>
           </div>
         )}
-        {state.kind === 'ready' && <ReportView data={state.data} />}
+
+        {state.kind === 'ready' && <Document data={state.data} />}
       </div>
     </AppShell>
   )
 }
 
-function Loading() {
+function Writing() {
+  // Gentle synthetic signal: the coach is "writing".
+  const start = useRef(performance.now())
+  const level = useCallback(() => 0.35 + 0.2 * Math.sin((performance.now() - start.current) / 300), [])
   return (
-    <div className="card state-screen fade-in" aria-busy="true">
-      <div className="loader" />
-      <h2 className="display">מכינים את הדוח שלך…</h2>
-      <p className="muted">המאמן מנתח את השיחה ומנסח משוב. זה לוקח בדרך כלל כמה שניות.</p>
-      <div style={{ display: 'grid', gap: 10, marginTop: 28 }}>
-        <div className="skeleton" style={{ width: '90%' }} />
-        <div className="skeleton" style={{ width: '70%' }} />
-        <div className="skeleton" style={{ width: '80%' }} />
-      </div>
+    <div className="status" aria-busy="true">
+      <VoiceWave getLevel={level} bars={20} />
+      <h1>המאמן כותב את המשוב שלך</h1>
+      <p>הוא עובר על התמליל של השיחה. זה לוקח בדרך כלל כמה שניות.</p>
     </div>
   )
 }
 
-function ReportView({ data }: { data: ReportResponse }) {
+function Document({ data }: { data: ReportResponse }) {
   const { report } = data
   const date = data.createdAt
-    ? new Intl.DateTimeFormat('he-IL', { dateStyle: 'long', timeStyle: 'short' }).format(new Date(data.createdAt))
+    ? new Intl.DateTimeFormat('he-IL', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(data.createdAt))
     : null
+  const context = [SESSION_TYPE_LABELS[report.sessionType] ?? report.sessionType, date].filter(Boolean).join(', ')
 
   return (
-    <article className="fade-in">
-      <header className="report-head">
-        <div>
-          <span className="eyebrow">
-            <FileText size={15} /> דוח אימון
-          </span>
-          <h1 className="display">ככה זה נראה מהצד.</h1>
-          <div className="report-meta">
-            <span className="badge badge-dot" style={{ color: 'var(--brand)' }}>
-              {SESSION_TYPE_LABELS[report.sessionType] ?? report.sessionType}
-            </span>
-            {date && <span className="badge">{date}</span>}
-          </div>
-        </div>
-        <div className="report-actions">
-          <button className="btn" onClick={() => window.print()}>
-            <Printer /> הדפסה / PDF
-          </button>
+    <article className="doc">
+      <header className="doc-head">
+        <p className="doc-context">{context}</p>
+        <h1 className="doc-title">המשוב שלך</h1>
+        <div className="doc-actions">
           <Link className="btn btn-primary" to="/session-builder">
-            אימון נוסף <ArrowLeft />
+            אימון נוסף
           </Link>
+          <button className="btn" onClick={() => window.print()}>
+            <Printer />
+            הדפסה או שמירה כ-PDF
+          </button>
         </div>
       </header>
 
-      <div className="report-grid">
-        <section className="card report-card span-2">
-          <h2>
-            <span className="ico">
-              <Sparkles />
-            </span>
-            סיכום
-          </h2>
-          <div className="summary-text">
-            {report.summary?.map((item, i) => (
-              <p key={i}>{item}</p>
-            ))}
-          </div>
-        </section>
-
-        <section className="card report-card">
-          <h2>
-            <span className="ico ico-success">
-              <ThumbsUp />
-            </span>
-            מה עבד טוב
-          </h2>
-          <ul className="list">
-            {report.strengths?.map((item, i) => (
-              <li key={i}>
-                <CheckCircle2 />
-                <span>{item}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <section className="card report-card">
-          <h2>
-            <span className="ico ico-accent">
-              <Lightbulb />
-            </span>
-            על מה לעבוד
-          </h2>
-          {report.improvements?.map((item, i) => (
-            <div key={i} className="improvement">
-              <span className="improvement-num">{i + 1}</span>
-              <h3>{item.title}</h3>
-              <p>{item.howToPractice}</p>
-            </div>
-          ))}
-        </section>
-
-        {report.rewriteSuggestion && (
-          <section className="card report-card span-2">
-            <h2>
-              <span className="ico">
-                <RefreshCw />
-              </span>
-              תשובה בגרסה משופרת
-            </h2>
-            <div className="rewrite">
-              <div className="rewrite-box">
-                <small>השאלה</small>
-                <p>{report.rewriteSuggestion.question}</p>
-              </div>
-              <div className="rewrite-box better">
-                <small>כך אפשר לענות</small>
-                <p>{report.rewriteSuggestion.betterAnswer}</p>
-              </div>
-            </div>
-          </section>
-        )}
-      </div>
+      <Feedback report={report} />
     </article>
   )
 }

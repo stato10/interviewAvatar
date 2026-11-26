@@ -1,205 +1,201 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  ArrowLeft,
-  BadgeCheck,
-  Briefcase,
-  CheckCircle2,
-  Flame,
-  Languages,
-  Lock,
-  Mic,
-  Presentation,
-  Sparkles,
-} from 'lucide-react'
 import { AppShell } from '../components/AppShell'
+import { Feedback } from '../components/Feedback'
+import { VoiceWave } from '../components/VoiceWave'
 
-const FEATURES = [
+/** Real questions the coach asks — the hero is the product's most characteristic moment. */
+const QUESTIONS = [
+  { context: 'ראיון עבודה, מנהל/ת מוצר', text: 'מה ההחלטה הקשה ביותר שקיבלת בעבודה, ואיך ידעת שהיא נכונה?' },
+  { context: 'סימולציית לחץ, משא ומתן', text: 'ההצעה שלך יקרה בשלושים אחוז מהמתחרים. למה שנשלם?' },
+  { context: 'ראיון עבודה, מפתח/ת Backend', text: 'איזה פרויקט שלך לא הצליח, ומה היית עושה אחרת היום?' },
+  { context: 'פרזנטציה, עדכון רבעוני להנהלה', text: 'יש לך שלוש דקות מול ההנהלה. מה המשפט הראשון?' },
+]
+
+const MODES = [
   {
-    icon: Briefcase,
     title: 'ראיון עבודה',
-    text: 'מראיין שמכיר את התפקיד ואת רמת הבכירות שלך, ושואל כמו בראיון אמיתי.',
-    points: ['שאלות התנהגותיות בשיטת STAR', 'שאלות המשך כשהתשובה שטחית', 'משוב קצר אחרי כל תשובה'],
+    text: 'המאמן מכיר את התפקיד ואת רמת הבכירות, שואל שאלות התנהגותיות ומקצועיות, ושואל שאלת המשך כשהתשובה כללית מדי.',
+    example: 'ספרו על פעם שלא הסכמתם עם המנהל שלכם. מה עשיתם?',
   },
   {
-    icon: Presentation,
     title: 'פרזנטציה',
-    text: 'מאמן שמקשיב עד הסוף ומחזיר משוב על מבנה, מסר וקצב.',
-    points: ['בלי קטיעות באמצע', 'זיהוי מילות מילוי וחזרות', 'משוב ביניים לפי בקשה'],
+    text: 'המאמן מקשיב עד הסוף בלי לקטוע, ומחזיר משוב על המבנה, על המסר המרכזי ועל הקצב.',
+    example: 'אם ההנהלה תזכור רק משפט אחד מהפרזנטציה, מה הוא צריך להיות?',
   },
   {
-    icon: Flame,
     title: 'סימולציית לחץ',
-    text: 'בעל עניין ספקן ולוחץ — משא ומתן, לקוח כועס, או הנהלה קשוחה.',
-    points: ['קושי שעולה בהדרגה', 'יציאה מהדמות למשוב', 'סביבה בטוחה לטעות'],
+    text: 'המאמן מגלם צד שני ספקן: לקוח, משקיע או הנהלה. הקושי עולה בהדרגה, ובין שלב לשלב הוא יוצא מהדמות לתת משוב.',
+    example: 'שמעתי את זה כבר משלושה ספקים. מה שונה אצלכם?',
   },
 ]
 
-const HOW = [
-  { title: 'מגדירים את הסשן', text: 'בוחרים סוג אימון, תפקיד ורמה. פחות מדקה.' },
-  { title: 'בודקים ציוד', text: 'מצלמה ומיקרופון — כדי שהמאמן ישמע ויראה אתכם.' },
-  { title: 'מתאמנים בקול', text: 'שיחה טבעית בעברית, עם תמליל חי על המסך.' },
-  { title: 'מקבלים דוח', text: 'נקודות חוזק, שיפורים ותרגילים — מבוססים על מה שאמרתם.' },
-]
+const SAMPLE = {
+  summary: [
+    'ענית על חמש שאלות לתפקיד מנהל/ת מוצר. הדוגמאות שלך היו אמיתיות ומשכנעות, אבל ברוב התשובות התוצאה הגיעה רק בסוף, או לא הגיעה בכלל.',
+  ],
+  strengths: ['דוגמה קונקרטית מהניסיון בכל תשובה', 'הודית בטעות בשאלה על כישלון, בלי להתגונן'],
+  improvements: [
+    {
+      title: 'פתחו בתוצאה',
+      howToPractice: 'לפני כל תשובה, אמרו קודם משפט אחד עם התוצאה במספרים, ורק אז ספרו איך הגעתם אליה.',
+    },
+    {
+      title: 'קצרו את ההקשר',
+      howToPractice: 'ההקדמה לקחה בממוצע דקה. תרגלו לתאר את המצב בשני משפטים.',
+    },
+  ],
+  rewriteSuggestion: undefined,
+}
+
+const WORD_MS = 230
 
 export default function Landing() {
+  const [index, setIndex] = useState(0)
+  const [said, setSaid] = useState(0)
+  const speakingRef = useRef(false)
+  const question = QUESTIONS[index]
+  const words = question.text.split(' ')
+  const done = said >= words.length
+
+  // One orchestrated moment: the coach "says" the question word by word, then it's your turn.
+  useEffect(() => {
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (reduced) {
+      setSaid(words.length)
+      return
+    }
+    setSaid(0)
+    speakingRef.current = true
+    let n = 0
+    const id = window.setInterval(() => {
+      n += 1
+      setSaid(n)
+      if (n >= words.length) {
+        speakingRef.current = false
+        window.clearInterval(id)
+      }
+    }, WORD_MS)
+    return () => {
+      window.clearInterval(id)
+      speakingRef.current = false
+    }
+  }, [index, words.length])
+
+  const level = useCallback(() => {
+    if (!speakingRef.current) return 0
+    const t = performance.now() / 1000
+    return 0.55 + 0.35 * Math.sin(t * 9) * Math.sin(t * 2.3)
+  }, [])
+
   return (
     <AppShell
       nav={
-        <Link to="/session-builder" className="btn btn-dark btn-sm">
-          התחל אימון
-        </Link>
+        <nav className="nav" aria-label="ראשי">
+          <a href="#how" className="btn btn-quiet btn-sm">
+            איך זה עובד
+          </a>
+          <Link to="/session-builder" className="btn btn-sm">
+            התחלת אימון
+          </Link>
+        </nav>
       }
     >
-      <section className="hero">
-        <div className="container hero-grid">
-          <div className="fade-in">
-            <span className="eyebrow">
-              <Sparkles size={15} /> מאמן AI קולי, בעברית
+      <section className="hero" aria-labelledby="hero-q">
+        <div className="container">
+          <p className="hero-context">{question.context}</p>
+          <h1 id="hero-q" className="hero-question" aria-label={question.text}>
+            {words.map((w, i) => (
+              <span key={`${index}-${i}`} className={i < said ? 'word is-said' : 'word'} aria-hidden>
+                {w}{' '}
+              </span>
+            ))}
+          </h1>
+
+          <div className="hero-voice">
+            <VoiceWave getLevel={level} className={done ? 'is-idle' : ''} />
+            <span className={done ? 'turn is-on' : 'turn'} aria-live="polite">
+              {done ? 'תורך.' : ''}
             </span>
-            <h1 className="display">
-              הראיון הבא שלך
-              <br />
-              <em>כבר לא יהיה הראשון.</em>
-            </h1>
-            <p className="hero-lead">
-              תרגלו ראיונות עבודה, פרזנטציות ושיחות קשות מול מאמן שמדבר, מקשיב ומגיב בזמן אמת — וקבלו דוח משוב מפורט
-              בסוף כל סשן.
-            </p>
-            <div className="hero-actions">
-              <Link to="/session-builder" className="btn btn-primary btn-lg">
-                התחילו אימון בחינם
-                <ArrowLeft />
-              </Link>
-              <a href="#how" className="btn btn-ghost btn-lg">
-                איך זה עובד
-              </a>
-            </div>
-            <div className="hero-meta">
-              <span>
-                <Mic /> שיחה קולית טבעית
-              </span>
-              <span>
-                <Languages /> עברית מלאה
-              </span>
-              <span>
-                <Lock /> בלי הרשמה
-              </span>
-            </div>
           </div>
 
-          <HeroMock />
-        </div>
-      </section>
-
-      <section className="section section-alt" id="features">
-        <div className="container">
-          <div className="section-head">
-            <span className="eyebrow">שלושה מצבי אימון</span>
-            <h2 className="display">מאמן אחד, לכל רגע שבו צריך להיות במיטבך.</h2>
-            <p>כל מצב מגיע עם פרסונה, קצב והנחיות משלו — כדי שהתרגול ירגיש כמו הדבר האמיתי.</p>
-          </div>
-          <div className="feature-grid">
-            {FEATURES.map(({ icon: Icon, title, text, points }) => (
-              <article key={title} className="feature">
-                <div className="feature-icon">
-                  <Icon />
-                </div>
-                <h3>{title}</h3>
-                <p>{text}</p>
-                <ul>
-                  {points.map((p) => (
-                    <li key={p}>
-                      <CheckCircle2 />
-                      {p}
-                    </li>
-                  ))}
-                </ul>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="section" id="how">
-        <div className="container">
-          <div className="section-head">
-            <span className="eyebrow">איך זה עובד</span>
-            <h2 className="display">מהגדרה ועד דוח — בארבעה צעדים.</h2>
-          </div>
-          <div className="how">
-            {HOW.map((s) => (
-              <div key={s.title} className="how-step">
-                <h3>{s.title}</h3>
-                <p>{s.text}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="section" style={{ paddingTop: 0 }}>
-        <div className="container">
-          <div className="cta">
-            <div>
-              <h2 className="display">מוכנים לסיבוב תרגול?</h2>
-              <p>חמש דקות של תרגול עכשיו שוות שעה של לחץ אחר כך.</p>
-            </div>
-            <Link to="/session-builder" className="btn btn-lg">
-              בנו את הסשן הראשון
-              <ArrowLeft />
+          <div className="hero-actions">
+            <Link to="/session-builder" className="btn btn-primary btn-lg">
+              התחלת אימון
             </Link>
+            <button type="button" className="btn btn-lg" onClick={() => setIndex((i) => (i + 1) % QUESTIONS.length)}>
+              שאלה אחרת
+            </button>
+            <p className="hero-note">מאמן קולי בעברית שמתרגל איתך ראיונות, פרזנטציות ושיחות קשות, ובסוף כותב לך משוב.</p>
           </div>
+        </div>
+      </section>
+
+      <section className="block" aria-labelledby="modes-title">
+        <div className="container">
+          <h2 id="modes-title" className="block-title">
+            שלוש דרכים להתאמן
+          </h2>
+          <p className="block-lead">בכל אחת המאמן מתנהג אחרת: מה הוא שואל, מתי הוא מפריע ועל מה הוא נותן משוב.</p>
+          <ul className="modes">
+            {MODES.map((m) => (
+              <li key={m.title} className="mode">
+                <h3>{m.title}</h3>
+                <p>{m.text}</p>
+                <blockquote>{m.example}</blockquote>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
+
+      <section className="block" aria-labelledby="sample-title">
+        <div className="container sample">
+          <div>
+            <h2 id="sample-title" className="block-title">
+              בסוף, משוב שמבוסס על מה שאמרת
+            </h2>
+            <p className="block-lead">
+              המאמן קורא את התמליל של השיחה וכותב משוב: מה עבד, מה לשפר קודם, ותרגיל קצר לכל נקודה. כך הוא נראה.
+            </p>
+          </div>
+          <div className="sample-doc" aria-label="דוגמה למשוב">
+            <Feedback report={SAMPLE} />
+          </div>
+        </div>
+      </section>
+
+      <section className="block" id="how" aria-labelledby="how-title">
+        <div className="container">
+          <h2 id="how-title" className="block-title">
+            איך זה עובד
+          </h2>
+          <p className="block-lead">בלי הרשמה. מספיקים מיקרופון וכמה דקות.</p>
+          <ol className="steps">
+            <li>
+              <h3>בוחרים אימון</h3>
+              <p>סוג האימון, התפקיד והרמה. המאמן מתאים את השאלות.</p>
+            </li>
+            <li>
+              <h3>בודקים מיקרופון</h3>
+              <p>כדי לוודא שהמאמן שומע אותך. המצלמה לא חובה.</p>
+            </li>
+            <li>
+              <h3>מדברים, ומקבלים משוב</h3>
+              <p>כשמסיימים, המשוב מוכן תוך כמה שניות.</p>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section className="closing">
+        <div className="container">
+          <h2>הראיון האמיתי יהיה קל יותר אחרי חזרה אחת.</h2>
+          <Link to="/session-builder" className="btn btn-primary btn-lg">
+            התחלת אימון
+          </Link>
         </div>
       </section>
     </AppShell>
-  )
-}
-
-function HeroMock() {
-  return (
-    <div className="mock fade-in" aria-hidden style={{ animationDelay: '120ms' }}>
-      <div className="mock-bar">
-        <div className="mock-dots">
-          <i />
-          <i />
-          <i />
-        </div>
-        <span>ראיון עבודה · 04:12</span>
-      </div>
-      <div className="mock-body">
-        <div className="mock-stage">
-          <div className="orb" style={{ ['--level' as string]: 0.35, width: 110, height: 110 }}>
-            <div className="orb-core" />
-          </div>
-          <div className="mock-self" />
-        </div>
-        <div className="mock-chat">
-          <p>
-            <b>מאמן</b>ספר לי על פרויקט שבו נאלצת לעבוד תחת לחץ זמנים.
-          </p>
-          <p className="me">
-            <b>את/ה</b>בפרויקט האחרון היו לנו שבועיים להשקה…
-          </p>
-          <p>
-            <b>מאמן</b>יפה. מה הייתה התוצאה במספרים?
-          </p>
-        </div>
-      </div>
-      <div className="mock-float">
-        <h4>
-          <BadgeCheck /> דוח אימון
-        </h4>
-        <ul>
-          <li>
-            <CheckCircle2 />
-            דוגמאות קונקרטיות מהניסיון
-          </li>
-          <li>
-            <CheckCircle2 />
-            מבנה ברור לתשובה
-          </li>
-        </ul>
-      </div>
-    </div>
   )
 }

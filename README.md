@@ -21,7 +21,7 @@ Interview Avatar Coach is a full-stack reference app: users configure a coaching
 
 | Layer | Stack |
 |--------|--------|
-| **Web** | React 18, TypeScript, Vite, `livekit-client`, React Router, Lucide icons |
+| **Web** | React 18, TypeScript, Vite, `livekit-client`, React Router, Lucide icons, IBM Plex Sans Hebrew |
 | **API** | FastAPI, SQLAlchemy, LiveKit Server API (rooms + JWT) |
 | **Agent** | `livekit-agents`, OpenAI STT/TTS, Silero VAD, multilingual turn detection |
 

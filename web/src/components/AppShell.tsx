@@ -1,19 +1,10 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { Brand } from './Logo'
 
 export function AppShell({ children, nav }: { children: ReactNode; nav?: ReactNode }) {
-  const [scrolled, setScrolled] = useState(false)
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 4)
-    onScroll()
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [])
-
   return (
     <div className="shell">
-      <header className={`topbar${scrolled ? ' is-scrolled' : ''}`}>
+      <header className="topbar">
         <div className="container topbar-inner">
           <Brand />
           {nav}
@@ -22,8 +13,8 @@ export function AppShell({ children, nav }: { children: ReactNode; nav?: ReactNo
       <main className="shell-main">{children}</main>
       <footer className="footer">
         <div className="container">
-          <span>© {new Date().getFullYear()} Avatar Coach</span>
-          <span>מופעל על ידי LiveKit · OpenAI</span>
+          <span>Avatar Coach</span>
+          <span>השיחה משמשת רק להפקת המשוב שלך.</span>
         </div>
       </footer>
     </div>

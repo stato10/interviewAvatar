@@ -1,29 +1,29 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertCircle, ArrowLeft, Camera, CameraOff, Headphones, Mic, MicOff, VideoOff } from 'lucide-react'
+import { AlertCircle, CameraOff, MicOff } from 'lucide-react'
 import { AppShell } from '../components/AppShell'
 import { Stepper } from '../components/Stepper'
+import { VoiceWave } from '../components/VoiceWave'
 import { loadDevicePrefs, loadSession, saveDevicePrefs } from '../lib/storage'
 import { SESSION_TYPE_LABELS } from '../lib/types'
 
 type MediaState = 'pending' | 'ready' | 'denied'
-const BARS = 10
 
 export default function PreJoin() {
   const navigate = useNavigate()
   const [session] = useState(loadSession)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const levelRef = useRef(0)
   const [prefs, setPrefs] = useState(loadDevicePrefs)
   const [media, setMedia] = useState<MediaState>('pending')
-  const [level, setLevel] = useState(0)
-  const [heardVoice, setHeardVoice] = useState(false)
+  const [heard, setHeard] = useState(false)
 
   useEffect(() => {
     if (!session) navigate('/session-builder', { replace: true })
   }, [session, navigate])
 
-  // Acquire preview media once; always release it on unmount (LiveRoom opens its own tracks).
+  // Preview media for this page only; always released on unmount (the room opens its own tracks).
   useEffect(() => {
     let cancelled = false
     let raf = 0
@@ -52,9 +52,9 @@ export default function PreJoin() {
         const data = new Uint8Array(analyser.frequencyBinCount)
         const tick = () => {
           analyser.getByteFrequencyData(data)
-          const value = Math.min(1, data.reduce((a, b) => a + b, 0) / data.length / 60)
-          setLevel(value)
-          if (value > 0.25) setHeardVoice(true)
+          const value = Math.min(1, data.reduce((a, b) => a + b, 0) / data.length / 55)
+          levelRef.current = value
+          if (value > 0.3) setHeard(true)
           raf = requestAnimationFrame(tick)
         }
         tick()
@@ -79,106 +79,86 @@ export default function PreJoin() {
     saveDevicePrefs(prefs)
   }, [prefs])
 
+  const micLevel = useCallback(() => (prefs.microphone ? levelRef.current : 0), [prefs.microphone])
+
   if (!session) return null
 
-  const camOk = media === 'ready' && prefs.camera
-  const micOk = media === 'ready' && prefs.microphone
-  const activeBars = prefs.microphone ? Math.round(level * BARS) : 0
+  const showVideo = media === 'ready' && prefs.camera
+  const micStatus = !prefs.microphone
+    ? 'המיקרופון מושתק. המאמן לא ישמע אותך.'
+    : media === 'denied'
+      ? 'אין גישה למיקרופון.'
+      : heard
+        ? 'שומעים אותך היטב.'
+        : 'אמרו משהו בקול רגיל.'
 
   return (
     <AppShell nav={<Stepper current={1} />}>
       <div className="container page">
-        <div className="page-head fade-in">
-          <span className="eyebrow">שלב 2 מתוך 4 · {SESSION_TYPE_LABELS[session.sessionConfig?.sessionType ?? 'interview']}</span>
-          <h1 className="display">רגע לפני שנכנסים</h1>
-          <p>ודאו שאתם נראים ונשמעים היטב. המאמן משתמש במצלמה כדי להעיר גם על שפת גוף.</p>
-        </div>
+        <h1 className="page-title">בדיקת מיקרופון</h1>
+        <p className="page-lead">
+          {SESSION_TYPE_LABELS[session.sessionConfig?.sessionType ?? 'interview']}. המאמן צריך לשמוע אותך. המצלמה לא
+          חובה, אבל איתה הוא יכול להעיר גם על שפת גוף.
+        </p>
 
-        <div className="prejoin">
-          <div className="preview fade-in">
-            <video ref={videoRef} autoPlay playsInline muted hidden={!camOk} />
-            {!camOk && (
-              <div className="tile-empty">
-                {media === 'pending' ? <div className="loader" /> : <VideoOff />}
-                {media === 'pending' ? 'מבקש גישה למצלמה…' : media === 'denied' ? 'אין גישה למצלמה' : 'המצלמה כבויה'}
+        <div className="check">
+          <div className="preview">
+            <video ref={videoRef} autoPlay playsInline muted hidden={!showVideo} />
+            {!showVideo && (
+              <div className="preview-empty">
+                <CameraOff />
+                {media === 'pending' ? 'מבקשים גישה למצלמה' : media === 'denied' ? 'אין גישה למצלמה' : 'המצלמה כבויה'}
               </div>
             )}
-            <div className="preview-overlay">
-              <button
-                type="button"
-                className={`round-btn${prefs.microphone ? '' : ' is-off'}`}
-                onClick={() => setPrefs((p) => ({ ...p, microphone: !p.microphone }))}
-                aria-label={prefs.microphone ? 'השתק מיקרופון' : 'הפעל מיקרופון'}
-                aria-pressed={!prefs.microphone}
-              >
-                {prefs.microphone ? <Mic /> : <MicOff />}
-              </button>
-              <button
-                type="button"
-                className={`round-btn${prefs.camera ? '' : ' is-off'}`}
-                onClick={() => setPrefs((p) => ({ ...p, camera: !p.camera }))}
-                aria-label={prefs.camera ? 'כבה מצלמה' : 'הפעל מצלמה'}
-                aria-pressed={!prefs.camera}
-              >
-                {prefs.camera ? <Camera /> : <CameraOff />}
-              </button>
-            </div>
           </div>
 
-          <div className="card check-panel fade-in" style={{ animationDelay: '80ms' }}>
-            <h2>בדיקת מוכנות</h2>
-            <p className="muted">הכול ירוק? אפשר להיכנס.</p>
-
+          <div>
             {media === 'denied' && (
-              <div className="alert" role="alert" style={{ marginTop: 16 }}>
+              <div className="notice" role="alert">
                 <AlertCircle />
-                <span className="alert-body">אין גישה למצלמה/מיקרופון. אשרו הרשאות בשורת הכתובת ורעננו את הדף.</span>
+                <span className="notice-body">
+                  הדפדפן חסם את המצלמה והמיקרופון. אפשרו גישה דרך סמל המנעול בשורת הכתובת, ורעננו את הדף.
+                </span>
               </div>
             )}
 
-            <ul className="checklist">
-              <li>
-                <span className={`check-icon ${camOk ? 'ok' : media === 'denied' ? 'bad' : ''}`}>
-                  <Camera />
+            <div className="mic-test">
+              <div className="mic-test-head">
+                <span className="field-label">מיקרופון</span>
+                <span className={heard && prefs.microphone ? 'mic-test-status is-ok' : 'mic-test-status'} aria-live="polite">
+                  {micStatus}
                 </span>
-                <span className="check-body">
-                  מצלמה
-                  <small>{camOk ? 'פועלת' : prefs.camera ? 'ממתין להרשאה' : 'כבויה — המאמן לא יראה אתכם'}</small>
-                </span>
-              </li>
-              <li>
-                <span className={`check-icon ${micOk && heardVoice ? 'ok' : media === 'denied' ? 'bad' : ''}`}>
-                  <Mic />
-                </span>
-                <span className="check-body">
-                  מיקרופון
-                  <small>
-                    {!prefs.microphone ? 'מושתק' : heardVoice ? 'קולט אתכם היטב' : 'אמרו משהו כדי לבדוק'}
-                  </small>
-                </span>
-                <span className="meter" aria-label={`עוצמת מיקרופון ${Math.round(level * 100)}%`}>
-                  {Array.from({ length: BARS }, (_, i) => (
-                    <i key={i} className={i < activeBars ? 'on' : ''} style={{ height: `${30 + i * 7}%` }} />
-                  ))}
-                </span>
-              </li>
-              <li>
-                <span className="check-icon">
-                  <Headphones />
-                </span>
-                <span className="check-body">
-                  אוזניות
-                  <small>מומלץ, כדי שהמאמן לא ישמע את עצמו</small>
-                </span>
-              </li>
-            </ul>
+              </div>
+              <VoiceWave getLevel={micLevel} bars={32} label="עוצמת המיקרופון" className={prefs.microphone ? '' : 'is-idle'} />
+            </div>
 
-            <div className="row">
-              <button className="btn btn-primary btn-lg" onClick={() => navigate(`/room/${session.roomName}`)}>
-                הצטרפו לאימון
-                <ArrowLeft />
+            <div className="toggles">
+              <button
+                type="button"
+                className="btn btn-sm toggle"
+                aria-pressed={!prefs.microphone}
+                onClick={() => setPrefs((p) => ({ ...p, microphone: !p.microphone }))}
+              >
+                <MicOff />
+                השתקת מיקרופון
               </button>
-              <button className="btn btn-ghost btn-lg" onClick={() => navigate('/session-builder')}>
+              <button
+                type="button"
+                className="btn btn-sm toggle"
+                aria-pressed={!prefs.camera}
+                onClick={() => setPrefs((p) => ({ ...p, camera: !p.camera }))}
+              >
+                <CameraOff />
+                כיבוי מצלמה
+              </button>
+            </div>
+            <p className="tip">עם אוזניות המאמן לא ישמע את עצמו, והשיחה תזרום טוב יותר.</p>
+
+            <div className="form-actions" style={{ marginTop: 32 }}>
+              <button className="btn btn-primary btn-lg" onClick={() => navigate(`/room/${session.roomName}`)}>
+                כניסה לאימון
+              </button>
+              <button className="btn btn-quiet btn-lg" onClick={() => navigate('/session-builder')}>
                 חזרה
               </button>
             </div>
